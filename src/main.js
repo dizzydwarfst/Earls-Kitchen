@@ -9,7 +9,7 @@ import { renderAdminPanel } from './pages/adminPanel.js';
 
 const app = document.getElementById('app');
 
-function router() {
+async function router() {
   const hash = window.location.hash || '#/login';
   const session = getSession();
 
@@ -21,11 +21,11 @@ function router() {
     renderLogin(app);
   } else if (hash.startsWith('#/user')) {
     if (!session || session.role !== 'cook') { navigate('#/login'); return; }
-    renderUserDashboard(app);
+    await renderUserDashboard(app);
   } else if (hash.startsWith('#/admin')) {
     if (!session || session.role !== 'admin') { navigate('#/login'); return; }
     const view = hash.replace('#/admin/', '').replace('#/admin', '') || 'dashboard';
-    renderAdminPanel(app, view);
+    await renderAdminPanel(app, view);
   } else {
     navigate('#/login');
   }

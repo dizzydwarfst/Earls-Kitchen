@@ -1,10 +1,23 @@
 // ═══════════════════════════════════════════════════════════
-// Earl's Kitchen — Login Page
+// Earl's Kitchen — Login Page (Optimized)
 // ═══════════════════════════════════════════════════════════
 import { store } from '../store.js';
+import { supabase } from '../supabase.js';
 import { setSession, navigate } from '../utils.js';
 
+// Pre-warm Supabase connection as soon as login page loads
+let warmupDone = false;
+function prewarmConnection() {
+  if (warmupDone) return;
+  warmupDone = true;
+  // Fire a tiny query to establish the connection early
+  supabase.from('stations').select('id').limit(1).then(() => {});
+}
+
 export function renderLogin(app) {
+  // Start pre-warming immediately
+  prewarmConnection();
+
   app.innerHTML = `
     <div class="login-page">
       <div class="login-card">
@@ -19,7 +32,7 @@ export function renderLogin(app) {
             <label class="form-label">Password</label>
             <input type="password" class="form-input" id="loginPass" placeholder="Enter password" autocomplete="current-password" required>
           </div>
-          <button type="submit" class="btn btn-primary btn-lg">Sign In</button>
+          <button type="submit" class="btn btn-primary btn-lg" id="loginBtn">Sign In</button>
           <div class="login-error" id="loginError">Invalid username or password</div>
         </form>
         <div style="margin-top:var(--space-xl);padding-top:var(--space-lg);border-top:1px solid var(--white-10);">
@@ -33,15 +46,36 @@ export function renderLogin(app) {
       </div>
     </div>`;
 
-  document.getElementById('loginForm').addEventListener('submit', (e) => {
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+
     const user = document.getElementById('loginUser').value.trim();
     const pass = document.getElementById('loginPass').value;
-    const found = store.authenticate(user, pass);
-    if (found) {
-      setSession(found);
-      navigate(found.role === 'admin' ? '#/admin' : '#/user');
-    } else {
+
+    try {
+      const found = await store.authenticate(user, pass);
+
+      if (found) {
+        setSession(found);
+        // Pre-fetch data for the next page while showing loading
+        btn.textContent = 'Loading dashboard...';
+        // Warm the cache before navigating
+        await Promise.all([store.getUsers(), store.getStations()]);
+        navigate(found.role === 'admin' ? '#/admin' : '#/user');
+      } else {
+        document.getElementById('loginError').classList.add('visible');
+        setTimeout(() => document.getElementById('loginError').classList.remove('visible'), 3000);
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+      document.getElementById('loginError').textContent = 'Connection error. Please try again.';
       document.getElementById('loginError').classList.add('visible');
       setTimeout(() => document.getElementById('loginError').classList.remove('visible'), 3000);
     }

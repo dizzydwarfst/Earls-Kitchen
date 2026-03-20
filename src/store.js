@@ -1,601 +1,430 @@
 // ═══════════════════════════════════════════════════════════
-// Earl's Kitchen — Data Store (localStorage persistence)
+// Earl's Kitchen — Data Store (Supabase persistence, optimized)
 // ═══════════════════════════════════════════════════════════
+import { supabase } from './supabase.js';
 
-const STORAGE_KEY = 'earls_kitchen_data_v3';
-
-// ─── Default Seed Data ───
-function createSeedData() {
-  const now = new Date().toISOString();
-  const today = new Date().toISOString().split('T')[0];
-
-  const stations = [
-    { id: 'apps', name: 'Apps', color: '#d4a843' },
-    { id: 'salads', name: 'Salads', color: '#2ecc71' },
-    { id: 'panfry', name: 'Panfry', color: '#3498db' },
-    { id: 'entree', name: 'Entree', color: '#e74c3c' },
-    { id: 'ovens', name: 'Ovens', color: '#f39c12' },
-  ];
-
-  const checklistTemplates = {
-    apps: [
-      { id: 'a1', text: 'Turn off all warming equipment', category: 'equipment' },
-      { id: 'a2', text: 'Clean and sanitize plating station', category: 'sanitize' },
-      { id: 'a3', text: 'Wrap and label all appetizer proteins', category: 'food_safety' },
-      { id: 'a4', text: 'Clean and store all small wares', category: 'cleaning' },
-      { id: 'a5', text: 'Wipe down all countertops and surfaces', category: 'cleaning' },
-      { id: 'a6', text: 'Restock garnishes and mise en place', category: 'restock' },
-      { id: 'a7', text: 'Clean and sanitize cutting boards', category: 'sanitize' },
-      { id: 'a8', text: 'Empty trash and replace liners', category: 'cleaning' },
-      { id: 'a9', text: 'Sweep and mop station floor area', category: 'cleaning' },
-      { id: 'a10', text: 'Check fridge for expired items', category: 'food_safety' },
-    ],
-    salads: [
-      { id: 'sl1', text: 'Cover and store all salad greens', category: 'food_safety' },
-      { id: 'sl2', text: 'Wrap and date all dressings', category: 'food_safety' },
-      { id: 'sl3', text: 'Clean salad spinner and mixing bowls', category: 'cleaning' },
-      { id: 'sl4', text: 'Sanitize cutting boards and knives', category: 'sanitize' },
-      { id: 'sl5', text: 'Wipe down cold table and surfaces', category: 'cleaning' },
-      { id: 'sl6', text: 'Restock containers and portion cups', category: 'restock' },
-      { id: 'sl7', text: 'Organize walk-in cooler (FIFO rotation)', category: 'food_safety' },
-      { id: 'sl8', text: 'Clean and sanitize prep area', category: 'sanitize' },
-      { id: 'sl9', text: 'Sweep and mop station floor area', category: 'cleaning' },
-      { id: 'sl10', text: 'Empty compost and recycling bins', category: 'cleaning' },
-    ],
-    panfry: [
-      { id: 'pf1', text: 'Turn off all burners', category: 'equipment' },
-      { id: 'pf2', text: 'Clean and polish all saute pans', category: 'cleaning' },
-      { id: 'pf3', text: 'Drain and filter fryer oil', category: 'cleaning' },
-      { id: 'pf4', text: 'Clean all sauce pots and store sauces', category: 'cleaning' },
-      { id: 'pf5', text: 'Wipe down range hood and backsplash', category: 'cleaning' },
-      { id: 'pf6', text: 'Label, date, and store all mise en place', category: 'food_safety' },
-      { id: 'pf7', text: 'Sanitize all prep surfaces', category: 'sanitize' },
-      { id: 'pf8', text: 'Restock oils, vinegars, and seasonings', category: 'restock' },
-      { id: 'pf9', text: 'Sweep and mop station floor area', category: 'cleaning' },
-      { id: 'pf10', text: 'Empty trash and replace liners', category: 'cleaning' },
-    ],
-    entree: [
-      { id: 'e1', text: 'Turn off all grill burners and flattops', category: 'equipment' },
-      { id: 'e2', text: 'Scrape and clean grill grates', category: 'cleaning' },
-      { id: 'e3', text: 'Empty and clean grease traps', category: 'cleaning' },
-      { id: 'e4', text: 'Wipe down grill exterior and hood', category: 'cleaning' },
-      { id: 'e5', text: 'Clean and sanitize all cutting boards', category: 'sanitize' },
-      { id: 'e6', text: 'Wrap and label all proteins for storage', category: 'food_safety' },
-      { id: 'e7', text: 'Restock plates and service ware', category: 'restock' },
-      { id: 'e8', text: 'Sweep and mop station floor area', category: 'cleaning' },
-      { id: 'e9', text: 'Sanitize all countertops and surfaces', category: 'sanitize' },
-      { id: 'e10', text: 'Check walk-in for protein par levels', category: 'food_safety' },
-    ],
-    ovens: [
-      { id: 'o1', text: 'Turn off all ovens and proofers', category: 'equipment' },
-      { id: 'o2', text: 'Clean oven interiors and racks', category: 'cleaning' },
-      { id: 'o3', text: 'Wipe down oven exteriors and handles', category: 'cleaning' },
-      { id: 'o4', text: 'Clean and store all baking sheets and pans', category: 'cleaning' },
-      { id: 'o5', text: 'Store all doughs and batters properly', category: 'food_safety' },
-      { id: 'o6', text: 'Label and date all oven-ready items', category: 'food_safety' },
-      { id: 'o7', text: 'Clean and organize oven tools', category: 'cleaning' },
-      { id: 'o8', text: 'Wipe down heat lamps and warming areas', category: 'cleaning' },
-      { id: 'o9', text: 'Sweep and mop station floor area', category: 'cleaning' },
-      { id: 'o10', text: 'Check and restock oven supplies', category: 'restock' },
-    ],
-  };
-
-  const users = [
-    { id: 'admin1', username: 'admin', password: 'admin123', name: 'Chef Marco', role: 'admin', stations: [], email: 'marco@earlskitchen.com' },
-    { id: 'user1', username: 'james', password: 'pass123', name: 'James Wilson', role: 'cook', stations: ['apps', 'salads'], streak: 5, email: 'james@earlskitchen.com' },
-    { id: 'user2', username: 'sarah', password: 'pass123', name: 'Sarah Chen', role: 'cook', stations: ['salads', 'apps'], streak: 12, email: 'sarah@earlskitchen.com' },
-    { id: 'user3', username: 'mike', password: 'pass123', name: 'Mike Torres', role: 'cook', stations: ['panfry', 'entree'], streak: 3, email: 'mike@earlskitchen.com' },
-    { id: 'user4', username: 'emma', password: 'pass123', name: 'Emma Davis', role: 'cook', stations: ['entree', 'ovens'], streak: 8, email: 'emma@earlskitchen.com' },
-    { id: 'user5', username: 'alex', password: 'pass123', name: 'Alex Johnson', role: 'cook', stations: ['ovens', 'panfry'], streak: 6, email: 'alex@earlskitchen.com' },
-  ];
-
-  // Generate historical shift data
-  const shifts = [];
-  const cooks = users.filter(u => u.role === 'cook');
-
-  for (let dayOffset = 6; dayOffset >= 1; dayOffset--) {
-    const d = new Date();
-    d.setDate(d.getDate() - dayOffset);
-    const dateStr = d.toISOString().split('T')[0];
-
-    cooks.forEach(cook => {
-      const duration = 15 + Math.floor(Math.random() * 30);
-      const speedScore = 50 + Math.floor(Math.random() * 50);
-      const cleanScore = 55 + Math.floor(Math.random() * 45);
-      const stId = cook.stations[0];
-      const template = checklistTemplates[stId];
-      const completedItems = template.map(item => ({
-        ...item,
-        completed: true,
-        completedAt: d.toISOString(),
-      }));
-
-      shifts.push({
-        id: `shift_${dateStr}_${cook.id}`,
-        userId: cook.id,
-        station: stId,
-        date: dateStr,
-        startTime: d.toISOString(),
-        endTime: new Date(d.getTime() + duration * 60000).toISOString(),
-        durationMinutes: duration,
-        items: completedItems,
-        completionPercent: 100,
-        speedScore,
-        cleanlinessScore: cleanScore,
-        overallScore: Math.round((speedScore + cleanScore) / 2),
-        scored: true,
-        notes: '',
-        status: 'scored',
-      });
-    });
-  }
-
-  // Today's active shifts
-  const todayShifts = [];
-  cooks.forEach(cook => {
-    const stId = cook.stations[0];
-    const template = checklistTemplates[stId];
-    const numCompleted = Math.floor(Math.random() * template.length);
-    const items = template.map((item, i) => ({
-      ...item,
-      completed: i < numCompleted,
-      completedAt: i < numCompleted ? now : null,
-    }));
-
-    todayShifts.push({
-      id: `shift_${today}_${cook.id}_${stId}`,
-      userId: cook.id,
-      station: stId,
-      date: today,
-      startTime: now,
-      endTime: null,
-      durationMinutes: 0,
-      items,
-      completionPercent: Math.round((numCompleted / template.length) * 100),
-      speedScore: null,
-      cleanlinessScore: null,
-      overallScore: null,
-      scored: false,
-      notes: '',
-      status: 'in_progress',
-    });
-  });
-
-  const dailyTasks = [
-    { id: 'dt1', text: 'Deep clean walk-in cooler shelves', assignedTo: 'user1', date: today, completed: false },
-    { id: 'dt2', text: 'Descale the dishwasher', assignedTo: 'user2', date: today, completed: false },
-    { id: 'dt3', text: 'Clean exhaust hood filters', assignedTo: 'user3', date: today, completed: false },
-    { id: 'dt4', text: 'Organize dry storage area', assignedTo: 'user4', date: today, completed: false },
-    { id: 'dt5', text: 'Sanitize all trash can exteriors', assignedTo: 'user5', date: today, completed: false },
-  ];
-
-  const incidents = [
-    { id: 'inc1', userId: 'user1', station: 'apps', type: 'equipment', description: 'Warming lamp flickering — needs bulb replacement', date: new Date(Date.now() - 2 * 86400000).toISOString(), resolved: true },
-    { id: 'inc2', userId: 'user3', station: 'panfry', type: 'supply', description: 'Running low on fryer oil — only 2 containers left', date: new Date(Date.now() - 86400000).toISOString(), resolved: false },
-  ];
-
-  // Pending invitations
-  const invitations = [];
-
-  // Common daily task presets
-  const commonDailyTasks = [
-    'Deep clean walk-in cooler shelves',
-    'Descale the dishwasher',
-    'Clean exhaust hood filters',
-    'Organize dry storage area',
-    'Sanitize all trash can exteriors',
-    'Clean floor drains',
-    'Wipe down walls behind cooking equipment',
-    'Detail clean ovens interior',
-    'Clean and organize spice rack',
-    'Sanitize ice machine',
-    'Deep clean fryer baskets',
-    'Scrub cutting boards with bleach solution',
-    'Clean walk-in freezer floor',
-    'Wipe down all shelving units',
-    'Clean staff break area',
-    'Restock all cleaning supplies',
-    'Clean hand wash stations',
-    'Reorganize prep containers by size',
-    'Deep clean dishwashing area',
-    'Polish all stainless steel surfaces',
-  ];
-
-  return {
-    users,
-    stations,
-    checklistTemplates,
-    shifts: [...shifts, ...todayShifts],
-    dailyTasks,
-    incidents,
-    invitations,
-    commonDailyTasks,
-    settings: {
-      shiftStartTime: '17:00',
-      shiftEndTime: '23:00',
-    },
-  };
-}
-
-// ─── Store API ───
 class Store {
   constructor() {
-    this._data = null;
-    this._listeners = [];
-    this.load();
+    // In-memory cache — loaded once, invalidated on writes
+    this._users = null;
+    this._stations = null;
+    this._userStations = null;
+    this._templates = {};  // keyed by station_id
   }
 
-  load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        this._data = JSON.parse(raw);
-      } else {
-        this._data = createSeedData();
-        this.save();
-      }
-    } catch {
-      this._data = createSeedData();
-      this.save();
+  // ─── Cache Helpers ───
+  async _ensureUsers() {
+    if (!this._users) {
+      const { data } = await supabase.from('users').select('*');
+      const { data: us } = await supabase.from('user_stations').select('*');
+      this._userStations = us || [];
+      this._users = (data || []).map(u => ({
+        ...u,
+        stations: this._userStations.filter(s => s.user_id === u.id).map(s => s.station_id),
+      }));
     }
+    return this._users;
   }
 
-  save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
-    this._listeners.forEach(fn => fn(this._data));
+  async _ensureStations() {
+    if (!this._stations) {
+      const { data } = await supabase.from('stations').select('*');
+      this._stations = data || [];
+    }
+    return this._stations;
   }
 
-  subscribe(fn) {
-    this._listeners.push(fn);
-    return () => {
-      this._listeners = this._listeners.filter(l => l !== fn);
-    };
+  _invalidateUsers() { this._users = null; this._userStations = null; }
+  _invalidateStations() { this._stations = null; }
+
+  // ─── Shift hydration (batch) ───
+  async _hydrateShifts(shifts) {
+    if (!shifts || !shifts.length) return [];
+    const ids = shifts.map(s => s.id);
+    const { data: allItems } = await supabase
+      .from('shift_items')
+      .select('*')
+      .in('shift_id', ids)
+      .order('sort_order');
+    const itemsByShift = {};
+    (allItems || []).forEach(i => {
+      if (!itemsByShift[i.shift_id]) itemsByShift[i.shift_id] = [];
+      itemsByShift[i.shift_id].push({
+        id: i.id, text: i.text, category: i.category,
+        completed: i.completed, completedAt: i.completed_at,
+      });
+    });
+    return shifts.map(shift => ({
+      ...shift,
+      station: shift.station_id,
+      userId: shift.user_id,
+      startTime: shift.start_time,
+      endTime: shift.end_time,
+      durationMinutes: shift.duration_minutes,
+      completionPercent: shift.completion_percent,
+      speedScore: shift.speed_score,
+      cleanlinessScore: shift.cleanliness_score,
+      overallScore: shift.overall_score,
+      adminComments: shift.admin_comments,
+      items: itemsByShift[shift.id] || [],
+    }));
   }
 
-  resetData() {
-    this._data = createSeedData();
-    this.save();
+  async _hydrateShift(shift) {
+    if (!shift) return null;
+    const results = await this._hydrateShifts([shift]);
+    return results[0] || null;
   }
 
   // ─── Auth ───
-  getUsers() { return this._data.users; }
-
-  authenticate(username, password) {
-    return this._data.users.find(u => u.username === username && u.password === password) || null;
+  async authenticate(username, password) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .eq('password', password)
+      .single();
+    if (error || !data) return null;
+    const stations = await this.getUserStations(data.id);
+    return { ...data, stations };
   }
 
-  getUserById(id) { return this._data.users.find(u => u.id === id); }
+  async getUsers() {
+    return this._ensureUsers();
+  }
 
-  changePassword(userId, oldPassword, newPassword) {
-    const user = this._data.users.find(u => u.id === userId);
+  async getUserById(id) {
+    const users = await this._ensureUsers();
+    return users.find(u => u.id === id) || null;
+  }
+
+  async getUserStations(userId) {
+    const users = await this._ensureUsers();
+    const user = users.find(u => u.id === userId);
+    return user ? user.stations : [];
+  }
+
+  async changePassword(userId, oldPassword, newPassword) {
+    const user = await this.getUserById(userId);
     if (!user) return { success: false, error: 'User not found' };
     if (user.password !== oldPassword) return { success: false, error: 'Current password is incorrect' };
     if (!newPassword || newPassword.length < 4) return { success: false, error: 'New password must be at least 4 characters' };
-    user.password = newPassword;
-    this.save();
+    await supabase.from('users').update({ password: newPassword }).eq('id', userId);
+    this._invalidateUsers();
     return { success: true };
   }
 
-  setUserStations(userId, stationsArray) {
-    const user = this._data.users.find(u => u.id === userId);
-    if (user) {
-      user.stations = stationsArray || [];
-      this.save();
+  async setUserStations(userId, stationsArray) {
+    await supabase.from('user_stations').delete().eq('user_id', userId);
+    if (stationsArray && stationsArray.length) {
+      const rows = stationsArray.map(s => ({ user_id: userId, station_id: s }));
+      await supabase.from('user_stations').insert(rows);
     }
-  }
-
-  getUserStations(userId) {
-    const user = this.getUserById(userId);
-    if (!user) return [];
-    return user.stations || (user.station ? [user.station] : []);
+    this._invalidateUsers();
   }
 
   // ─── User Management ───
-  addUser(name, username, password, email, role, stations) {
+  async addUser(name, username, password, email, role, stations) {
     const id = `user_${Date.now()}`;
-    const newUser = {
-      id,
-      username,
-      password,
-      name,
-      role: role || 'cook',
-      stations: Array.isArray(stations) ? stations : (stations ? [stations] : []),
-      streak: 0,
-      email: email || '',
-    };
-    this._data.users.push(newUser);
-    this.save();
-    return newUser;
+    const newUser = { id, username, password, name, role: role || 'cook', email: email || '', streak: 0 };
+    await supabase.from('users').insert(newUser);
+    const stArr = Array.isArray(stations) ? stations : (stations ? [stations] : []);
+    if (stArr.length) {
+      await supabase.from('user_stations').insert(stArr.map(s => ({ user_id: id, station_id: s })));
+    }
+    this._invalidateUsers();
+    return { ...newUser, stations: stArr };
   }
 
-  removeUser(userId) {
-    this._data.users = this._data.users.filter(u => u.id !== userId);
-    this.save();
+  async removeUser(userId) {
+    await supabase.from('users').delete().eq('id', userId);
+    this._invalidateUsers();
   }
 
-  addInvitation(email, name, station) {
+  async addInvitation(email, name, stationId) {
     const inv = {
-      id: `inv_${Date.now()}`,
-      email,
-      name,
-      station,
-      sentAt: new Date().toISOString(),
+      id: `inv_${Date.now()}`, email, name,
+      station_id: stationId || null,
+      sent_at: new Date().toISOString(),
       status: 'pending',
     };
-    if (!this._data.invitations) this._data.invitations = [];
-    this._data.invitations.push(inv);
-    this.save();
+    await supabase.from('invitations').insert(inv);
     return inv;
   }
 
-  getInvitations() {
-    return this._data.invitations || [];
+  async getInvitations() {
+    const { data } = await supabase.from('invitations').select('*').order('sent_at', { ascending: false });
+    return (data || []).map(inv => ({ ...inv, station: inv.station_id, sentAt: inv.sent_at }));
   }
 
   // ─── Stations ───
-  getStations() { return this._data.stations; }
-  getStationById(id) { return this._data.stations.find(s => s.id === id); }
-
-  // ─── Checklist Templates ───
-  getChecklistTemplate(stationId) {
-    return this._data.checklistTemplates[stationId] || [];
+  async getStations() {
+    return this._ensureStations();
   }
 
-  addChecklistItem(stationId, text, category = 'cleaning') {
-    const id = `${stationId}_${Date.now()}`;
-    if (!this._data.checklistTemplates[stationId]) {
-      this._data.checklistTemplates[stationId] = [];
+  async getStationById(id) {
+    const stations = await this._ensureStations();
+    return stations.find(s => s.id === id) || null;
+  }
+
+  // ─── Checklist Templates ───
+  async getChecklistTemplate(stationId) {
+    if (!this._templates[stationId]) {
+      const { data } = await supabase
+        .from('checklist_templates')
+        .select('*')
+        .eq('station_id', stationId)
+        .order('sort_order');
+      this._templates[stationId] = data || [];
     }
-    this._data.checklistTemplates[stationId].push({ id, text, category });
-    this.save();
+    return this._templates[stationId];
+  }
+
+  async addChecklistItem(stationId, text, category = 'cleaning') {
+    const id = `${stationId}_${Date.now()}`;
+    const items = await this.getChecklistTemplate(stationId);
+    const nextOrder = items.length ? Math.max(...items.map(i => i.sort_order || 0)) + 1 : 1;
+    await supabase.from('checklist_templates').insert({ id, station_id: stationId, text, category, sort_order: nextOrder });
+    delete this._templates[stationId]; // invalidate cache
     return id;
   }
 
-  removeChecklistItem(stationId, itemId) {
-    if (this._data.checklistTemplates[stationId]) {
-      this._data.checklistTemplates[stationId] = this._data.checklistTemplates[stationId].filter(i => i.id !== itemId);
-      this.save();
-    }
+  async removeChecklistItem(stationId, itemId) {
+    await supabase.from('checklist_templates').delete().eq('id', itemId);
+    delete this._templates[stationId];
   }
 
   // ─── Shifts ───
-  getShifts() { return this._data.shifts; }
-
-  getShiftsByUser(userId) {
-    return this._data.shifts.filter(s => s.userId === userId);
+  async getShiftsByUser(userId) {
+    const { data } = await supabase.from('shifts').select('*').eq('user_id', userId).order('date', { ascending: false });
+    return this._hydrateShifts(data || []);
   }
 
-  getShiftsByDate(date) {
-    return this._data.shifts.filter(s => s.date === date);
+  async getShiftsByStation(stationId) {
+    const { data } = await supabase.from('shifts').select('*').eq('station_id', stationId).order('date', { ascending: false });
+    return this._hydrateShifts(data || []);
   }
 
-  getShiftsByStation(stationId) {
-    return this._data.shifts.filter(s => s.station === stationId);
-  }
-
-  getTodayShifts() {
+  async getTodayShifts() {
     const today = new Date().toISOString().split('T')[0];
-    return this.getShiftsByDate(today);
+    const { data } = await supabase.from('shifts').select('*').eq('date', today);
+    return this._hydrateShifts(data || []);
   }
 
-  getActiveShift(userId) {
+  async getActiveShift(userId) {
     const today = new Date().toISOString().split('T')[0];
-    return this._data.shifts.find(s => s.userId === userId && s.date === today && s.status === 'in_progress');
+    const { data } = await supabase
+      .from('shifts').select('*')
+      .eq('user_id', userId).eq('date', today).eq('status', 'in_progress')
+      .single();
+    if (!data) return null;
+    return this._hydrateShift(data);
   }
 
-  hasCompletedShiftToday(userId) {
+  async hasCompletedShiftToday(userId) {
     const today = new Date().toISOString().split('T')[0];
-    return this._data.shifts.some(s => s.userId === userId && s.date === today && (s.status === 'completed' || s.status === 'scored'));
+    const { data } = await supabase
+      .from('shifts').select('id')
+      .eq('user_id', userId).eq('date', today)
+      .in('status', ['completed', 'scored']).limit(1);
+    return data && data.length > 0;
   }
 
-  getTodayShiftForUser(userId) {
+  async createShift(userId, stationId) {
     const today = new Date().toISOString().split('T')[0];
-    return this._data.shifts.find(s => s.userId === userId && s.date === today);
-  }
+    const { data: existing } = await supabase
+      .from('shifts').select('*')
+      .eq('user_id', userId).eq('date', today).limit(1);
+    if (existing && existing.length) return this._hydrateShift(existing[0]);
 
-  createShift(userId, stationId) {
-    const user = this.getUserById(userId);
-    if (!user || !stationId) return null;
-
-    const today = new Date().toISOString().split('T')[0];
-    // One shift per day per user
-    const todayShift = this._data.shifts.find(s => s.userId === userId && s.date === today);
-    if (todayShift) return todayShift;
-
-    const template = this.getChecklistTemplate(stationId);
+    const template = await this.getChecklistTemplate(stationId);
+    const shiftId = `shift_${today}_${userId}_${stationId}`;
     const shift = {
-      id: `shift_${today}_${userId}_${stationId}`,
-      userId,
-      station: stationId,
-      date: today,
-      startTime: new Date().toISOString(),
-      endTime: null,
-      durationMinutes: 0,
-      items: template.map(item => ({ ...item, completed: false, completedAt: null })),
-      completionPercent: 0,
-      speedScore: null,
-      cleanlinessScore: null,
-      overallScore: null,
-      scored: false,
-      notes: '',
-      status: 'in_progress',
+      id: shiftId, user_id: userId, station_id: stationId, date: today,
+      start_time: new Date().toISOString(), end_time: null,
+      duration_minutes: 0, completion_percent: 0,
+      speed_score: null, cleanliness_score: null, overall_score: null,
+      scored: false, notes: '', admin_comments: '', status: 'in_progress',
     };
+    await supabase.from('shifts').insert(shift);
 
-    this._data.shifts.push(shift);
-    this.save();
-    return shift;
+    const items = template.map((t, i) => ({
+      id: `${shiftId}_${t.id}`, shift_id: shiftId,
+      text: t.text, category: t.category,
+      completed: false, completed_at: null, sort_order: i,
+    }));
+    if (items.length) await supabase.from('shift_items').insert(items);
+
+    return this._hydrateShift(shift);
   }
 
-  toggleShiftItem(shiftId, itemId) {
-    const shift = this._data.shifts.find(s => s.id === shiftId);
-    if (!shift) return;
+  async toggleShiftItem(shiftId, itemId) {
+    const { data: item } = await supabase.from('shift_items').select('*').eq('id', itemId).single();
+    if (!item) return null;
 
-    const item = shift.items.find(i => i.id === itemId);
-    if (!item) return;
+    const newCompleted = !item.completed;
+    await supabase.from('shift_items').update({
+      completed: newCompleted,
+      completed_at: newCompleted ? new Date().toISOString() : null,
+    }).eq('id', itemId);
 
-    item.completed = !item.completed;
-    item.completedAt = item.completed ? new Date().toISOString() : null;
+    // Recalculate completion
+    const { data: allItems } = await supabase.from('shift_items').select('completed').eq('shift_id', shiftId);
+    const completedCount = (allItems || []).filter(i => i.completed).length;
+    const total = (allItems || []).length;
+    const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
 
-    const completed = shift.items.filter(i => i.completed).length;
-    shift.completionPercent = Math.round((completed / shift.items.length) * 100);
-
-    if (shift.completionPercent === 100 && shift.status === 'in_progress') {
-      shift.status = 'completed';
-      shift.endTime = new Date().toISOString();
-      const start = new Date(shift.startTime);
-      const end = new Date(shift.endTime);
-      shift.durationMinutes = Math.round((end - start) / 60000);
-    } else if (shift.completionPercent < 100 && shift.status === 'completed') {
-      shift.status = 'in_progress';
-      shift.endTime = null;
+    const updates = { completion_percent: pct };
+    if (pct === 100) {
+      updates.status = 'completed';
+      updates.end_time = new Date().toISOString();
+      const { data: shift } = await supabase.from('shifts').select('start_time').eq('id', shiftId).single();
+      if (shift) updates.duration_minutes = Math.round((Date.now() - new Date(shift.start_time).getTime()) / 60000);
+    } else {
+      const { data: shift } = await supabase.from('shifts').select('status').eq('id', shiftId).single();
+      if (shift && shift.status === 'completed') {
+        updates.status = 'in_progress';
+        updates.end_time = null;
+      }
     }
 
-    this.save();
-    return shift;
+    await supabase.from('shifts').update(updates).eq('id', shiftId);
+
+    const { data: updatedShift } = await supabase.from('shifts').select('*').eq('id', shiftId).single();
+    return this._hydrateShift(updatedShift);
   }
 
-  updateShiftNotes(shiftId, notes) {
-    const shift = this._data.shifts.find(s => s.id === shiftId);
-    if (shift) {
-      shift.notes = notes;
-      this.save();
-    }
+  async updateShiftNotes(shiftId, notes) {
+    await supabase.from('shifts').update({ notes }).eq('id', shiftId);
   }
 
-  scoreShift(shiftId, speedScore, cleanlinessScore, comments) {
-    const shift = this._data.shifts.find(s => s.id === shiftId);
-    if (!shift) return;
-    shift.speedScore = speedScore;
-    shift.cleanlinessScore = cleanlinessScore;
-    shift.overallScore = Math.round((speedScore + cleanlinessScore) / 2);
-    shift.scored = true;
-    shift.status = 'scored';
-    shift.adminComments = comments || '';
-    this.save();
-    return shift;
+  async scoreShift(shiftId, speedScore, cleanlinessScore, comments) {
+    const overall = Math.round((speedScore + cleanlinessScore) / 2);
+    await supabase.from('shifts').update({
+      speed_score: speedScore, cleanliness_score: cleanlinessScore,
+      overall_score: overall, scored: true, status: 'scored',
+      admin_comments: comments || '',
+    }).eq('id', shiftId);
   }
 
-  updateScoredShift(shiftId, speedScore, cleanlinessScore, comments) {
-    const shift = this._data.shifts.find(s => s.id === shiftId);
-    if (!shift) return null;
-    shift.speedScore = speedScore;
-    shift.cleanlinessScore = cleanlinessScore;
-    shift.overallScore = Math.round((speedScore + cleanlinessScore) / 2);
-    shift.adminComments = comments || '';
-    this.save();
-    return shift;
-  }
-
-  getShiftById(shiftId) {
-    return this._data.shifts.find(s => s.id === shiftId);
+  async updateScoredShift(shiftId, speedScore, cleanlinessScore, comments) {
+    const overall = Math.round((speedScore + cleanlinessScore) / 2);
+    await supabase.from('shifts').update({
+      speed_score: speedScore, cleanliness_score: cleanlinessScore,
+      overall_score: overall, admin_comments: comments || '',
+    }).eq('id', shiftId);
   }
 
   // ─── Daily Tasks ───
-  getDailyTasks(date) {
+  async getDailyTasks(date) {
     const d = date || new Date().toISOString().split('T')[0];
-    return this._data.dailyTasks.filter(t => t.date === d);
+    const { data } = await supabase.from('daily_tasks').select('*').eq('date', d);
+    return (data || []).map(t => ({ ...t, assignedTo: t.assigned_to }));
   }
 
-  getDailyTasksForUser(userId) {
+  async getDailyTasksForUser(userId) {
     const today = new Date().toISOString().split('T')[0];
-    return this._data.dailyTasks.filter(t => t.assignedTo === userId && t.date === today);
+    const { data } = await supabase.from('daily_tasks').select('*').eq('assigned_to', userId).eq('date', today);
+    return (data || []).map(t => ({ ...t, assignedTo: t.assigned_to }));
   }
 
-  toggleDailyTask(taskId) {
-    const task = this._data.dailyTasks.find(t => t.id === taskId);
-    if (task) {
-      task.completed = !task.completed;
-      this.save();
-    }
-    return task;
+  async toggleDailyTask(taskId) {
+    const { data: task } = await supabase.from('daily_tasks').select('*').eq('id', taskId).single();
+    if (!task) return null;
+    await supabase.from('daily_tasks').update({ completed: !task.completed }).eq('id', taskId);
+    return { ...task, completed: !task.completed };
   }
 
-  addDailyTask(text, assignedTo, date) {
+  async addDailyTask(text, assignedTo, date) {
     const task = {
-      id: `dt_${Date.now()}`,
-      text,
-      assignedTo,
+      id: `dt_${Date.now()}`, text, assigned_to: assignedTo,
       date: date || new Date().toISOString().split('T')[0],
       completed: false,
     };
-    this._data.dailyTasks.push(task);
-    this.save();
-    return task;
+    await supabase.from('daily_tasks').insert(task);
+    return { ...task, assignedTo };
   }
 
-  removeDailyTask(taskId) {
-    this._data.dailyTasks = this._data.dailyTasks.filter(t => t.id !== taskId);
-    this.save();
+  async removeDailyTask(taskId) {
+    await supabase.from('daily_tasks').delete().eq('id', taskId);
   }
 
-  getCommonDailyTasks() {
-    return this._data.commonDailyTasks || [];
+  async getCommonDailyTasks() {
+    const { data } = await supabase.from('common_daily_tasks').select('text');
+    return (data || []).map(r => r.text);
   }
 
   // ─── Incidents ───
-  getIncidents() { return this._data.incidents; }
+  async getIncidents() {
+    const { data } = await supabase.from('incidents').select('*').order('date', { ascending: false });
+    return (data || []).map(i => ({ ...i, userId: i.user_id, station: i.station_id }));
+  }
 
-  addIncident(userId, station, type, description) {
+  async addIncident(userId, stationId, type, description) {
     const incident = {
-      id: `inc_${Date.now()}`,
-      userId,
-      station,
-      type,
-      description,
-      date: new Date().toISOString(),
-      resolved: false,
+      id: `inc_${Date.now()}`, user_id: userId, station_id: stationId,
+      type, description, date: new Date().toISOString(), resolved: false,
     };
-    this._data.incidents.push(incident);
-    this.save();
+    await supabase.from('incidents').insert(incident);
     return incident;
   }
 
-  resolveIncident(incidentId) {
-    const inc = this._data.incidents.find(i => i.id === incidentId);
-    if (inc) {
-      inc.resolved = true;
-      this.save();
-    }
+  async resolveIncident(incidentId) {
+    await supabase.from('incidents').update({ resolved: true }).eq('id', incidentId);
   }
 
-  // ─── Analytics ───
-  getUserAverageScores(userId) {
-    const scored = this._data.shifts.filter(s => s.userId === userId && s.scored);
-    if (!scored.length) return { speed: 0, cleanliness: 0, overall: 0, count: 0 };
-    const speed = Math.round(scored.reduce((a, s) => a + s.speedScore, 0) / scored.length);
-    const cleanliness = Math.round(scored.reduce((a, s) => a + s.cleanlinessScore, 0) / scored.length);
-    return {
-      speed,
-      cleanliness,
-      overall: Math.round((speed + cleanliness) / 2),
-      count: scored.length,
-    };
+  // ─── Analytics (uses cached users) ───
+  async getUserAverageScores(userId) {
+    const { data: scored } = await supabase
+      .from('shifts')
+      .select('speed_score, cleanliness_score')
+      .eq('user_id', userId).eq('scored', true);
+    if (!scored || !scored.length) return { speed: 0, cleanliness: 0, overall: 0, count: 0 };
+    const speed = Math.round(scored.reduce((a, s) => a + s.speed_score, 0) / scored.length);
+    const cleanliness = Math.round(scored.reduce((a, s) => a + s.cleanliness_score, 0) / scored.length);
+    return { speed, cleanliness, overall: Math.round((speed + cleanliness) / 2), count: scored.length };
   }
 
-  getUserStreak(userId) {
-    const user = this.getUserById(userId);
+  async getUserStreak(userId) {
+    const user = await this.getUserById(userId);
     return user ? (user.streak || 0) : 0;
   }
 
-  getLeaderboard() {
-    const cooks = this._data.users.filter(u => u.role === 'cook');
+  async getLeaderboard() {
+    const users = await this.getUsers();
+    const cooks = users.filter(u => u.role === 'cook');
+
+    // Batch: fetch all scored shifts at once instead of per-user
+    const { data: allScored } = await supabase
+      .from('shifts')
+      .select('user_id, speed_score, cleanliness_score')
+      .eq('scored', true);
+
+    const scoresByUser = {};
+    (allScored || []).forEach(s => {
+      if (!scoresByUser[s.user_id]) scoresByUser[s.user_id] = [];
+      scoresByUser[s.user_id].push(s);
+    });
+
     return cooks.map(cook => {
-      const avg = this.getUserAverageScores(cook.id);
+      const scored = scoresByUser[cook.id] || [];
+      let avgSpeed = 0, avgClean = 0, avgOverall = 0;
+      if (scored.length) {
+        avgSpeed = Math.round(scored.reduce((a, s) => a + s.speed_score, 0) / scored.length);
+        avgClean = Math.round(scored.reduce((a, s) => a + s.cleanliness_score, 0) / scored.length);
+        avgOverall = Math.round((avgSpeed + avgClean) / 2);
+      }
       return {
         ...cook,
-        avgScore: avg.overall,
-        avgSpeed: avg.speed,
-        avgCleanliness: avg.cleanliness,
-        shiftCount: avg.count,
+        avgScore: avgOverall,
+        avgSpeed,
+        avgCleanliness: avgClean,
+        shiftCount: scored.length,
       };
     }).sort((a, b) => b.avgScore - a.avgScore);
   }
 
-  getAverageClosingTime(userId) {
-    const completed = this._data.shifts.filter(s => s.userId === userId && s.durationMinutes > 0);
-    if (!completed.length) return 0;
-    return Math.round(completed.reduce((a, s) => a + s.durationMinutes, 0) / completed.length);
-  }
+  
 }
 
 export const store = new Store();

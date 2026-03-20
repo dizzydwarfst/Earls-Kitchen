@@ -1,17 +1,17 @@
 // ═══════════════════════════════════════════════════════════
-// Earl's Kitchen — User Dashboard (Cook View)
+// Earl's Kitchen — User Dashboard (Cook View, Optimized)
 // ═══════════════════════════════════════════════════════════
 import { store } from '../store.js';
 import { getSession, clearSession, navigate, showToast, formatDate, getInitials } from '../utils.js';
 
 let currentTab = 'checklist';
 
-export function renderUserDashboard(app) {
+export async function renderUserDashboard(app) {
   const session = getSession();
   if (!session || session.role !== 'cook') { navigate('#/login'); return; }
 
-  const user = store.getUserById(session.id);
-  const userStations = store.getUserStations(user.id);
+  const user = await store.getUserById(session.id);
+  const userStations = user.stations || [];
 
   app.innerHTML = `
     <div class="user-layout">
@@ -28,7 +28,7 @@ export function renderUserDashboard(app) {
           <button class="tab-btn ${currentTab === 'history' ? 'active' : ''}" data-tab="history">My History</button>
           <button class="tab-btn ${currentTab === 'settings' ? 'active' : ''}" data-tab="settings">Settings</button>
         </div>
-        <div id="userTabContent"></div>
+        <div id="userTabContent"><div style="text-align:center;padding:var(--space-xl);color:var(--white-50);">Loading...</div></div>
       </div>
     </div>`;
 
@@ -46,38 +46,41 @@ export function renderUserDashboard(app) {
     navigate('#/login');
   });
 
-  renderCurrentTab(app, user, userStations);
+  await renderCurrentTab(app, user, userStations);
 }
 
-function renderCurrentTab(app, user, userStations) {
+async function renderCurrentTab(app, user, userStations) {
   const container = document.getElementById('userTabContent');
   switch (currentTab) {
-    case 'checklist': renderChecklistTab(container, user, userStations); break;
-    case 'history': renderHistoryTab(container, user); break;
-    case 'settings': renderSettingsTab(container, user); break;
+    case 'checklist': await renderChecklistTab(container, user, userStations); break;
+    case 'history': await renderHistoryTab(container, user); break;
+    case 'settings': await renderSettingsTab(container, user); break;
   }
 }
 
 // ═══════════════════════════════════════
 // CHECKLIST TAB
 // ═══════════════════════════════════════
-function renderChecklistTab(container, user, userStations) {
-  // Check if already completed today
-  if (store.hasCompletedShiftToday(user.id)) {
+async function renderChecklistTab(container, user, userStations) {
+  container.innerHTML = `<div style="text-align:center;padding:var(--space-xl);color:var(--white-50);">Loading shift...</div>`;
+
+  const hasCompleted = await store.hasCompletedShiftToday(user.id);
+  if (hasCompleted) {
     renderThankYou(container, user);
     return;
   }
 
-  // Check for active shift
-  let shift = store.getActiveShift(user.id);
+  let shift = await store.getActiveShift(user.id);
   if (!shift) {
-    renderStartScreen(container, user, userStations);
+    await renderStartScreen(container, user, userStations);
     return;
   }
 
-  const activeStation = store.getStationById(shift.station);
-  const dailyTasks = store.getDailyTasksForUser(user.id);
-  const streak = store.getUserStreak(user.id);
+  const [activeStation, dailyTasks, streak] = await Promise.all([
+    store.getStationById(shift.station),
+    store.getDailyTasksForUser(user.id),
+    store.getUserStreak(user.id),
+  ]);
 
   container.innerHTML = `
     <div class="animate-in" style="text-align:center;margin-bottom:var(--space-lg);">
@@ -86,7 +89,6 @@ function renderChecklistTab(container, user, userStations) {
       ${streak > 0 ? `<div class="streak-badge" style="margin-top:var(--space-md);">${streak} Day Streak</div>` : ''}
     </div>
 
-    <!-- Progress Ring -->
     <div class="card animate-in stagger-1" style="text-align:center;margin-bottom:var(--space-lg);">
       <div class="progress-ring-container">
         <div class="progress-ring">
@@ -102,7 +104,6 @@ function renderChecklistTab(container, user, userStations) {
       </div>
     </div>
 
-    <!-- Station Checklist -->
     <div class="card animate-in stagger-2" style="margin-bottom:var(--space-lg);">
       <div class="card-header">
         <h3>Station Tasks</h3>
@@ -136,7 +137,6 @@ function renderChecklistTab(container, user, userStations) {
       </div>
     </div>` : ''}
 
-    <!-- Notes & Incidents -->
     <div class="card animate-in stagger-4" style="margin-bottom:var(--space-lg);">
       <div class="card-header"><h3>Notes & Issues</h3></div>
       <div class="form-group" style="margin-bottom:var(--space-md);">
@@ -145,13 +145,11 @@ function renderChecklistTab(container, user, userStations) {
       <button class="btn btn-sm btn-secondary" id="reportIssueBtn">Report Issue</button>
     </div>
 
-    <!-- Finish Shift Button -->
     <div class="animate-in stagger-5" style="text-align:center;padding:var(--space-xl) 0;">
       <button class="btn btn-primary btn-lg" id="finishShiftBtn" disabled>Finish Shift</button>
       <p style="font-size:0.8rem;color:var(--white-30);margin-top:var(--space-sm);" id="finishHint">Complete all tasks to finish your shift</p>
     </div>
 
-    <!-- Issue Modal -->
     <div class="modal-overlay" id="issueModal" style="display:none;">
       <div class="modal">
         <h2>Report an Issue</h2>
@@ -175,40 +173,41 @@ function renderChecklistTab(container, user, userStations) {
       </div>
     </div>`;
 
-  // Init
   updateRing(shift.completionPercent);
   updateCounts(shift, dailyTasks);
   checkFinishable(shift, dailyTasks);
 
-  // Checklist events
-  document.getElementById('stationChecklist').addEventListener('click', (e) => {
+  document.getElementById('stationChecklist').addEventListener('click', async (e) => {
     const item = e.target.closest('.checklist-item');
     if (!item) return;
-    const updated = store.toggleShiftItem(shift.id, item.dataset.id);
+    item.style.pointerEvents = 'none';
+    const updated = await store.toggleShiftItem(shift.id, item.dataset.id);
     if (updated) {
       shift = updated;
       item.classList.toggle('checked');
       updateRing(shift.completionPercent);
-      updateCounts(shift, dailyTasks);
-      checkFinishable(shift, dailyTasks);
+      const tasks = await store.getDailyTasksForUser(user.id);
+      updateCounts(shift, tasks);
+      checkFinishable(shift, tasks);
     }
+    item.style.pointerEvents = '';
   });
 
   const dailyList = document.getElementById('dailyChecklist');
   if (dailyList) {
-    dailyList.addEventListener('click', (e) => {
+    dailyList.addEventListener('click', async (e) => {
       const item = e.target.closest('.checklist-item');
       if (!item) return;
-      store.toggleDailyTask(item.dataset.dailyId);
+      await store.toggleDailyTask(item.dataset.dailyId);
       item.classList.toggle('checked');
-      const tasks = store.getDailyTasksForUser(user.id);
+      const tasks = await store.getDailyTasksForUser(user.id);
       updateCounts(shift, tasks);
       checkFinishable(shift, tasks);
     });
   }
 
-  document.getElementById('shiftNotes').addEventListener('blur', (e) => {
-    store.updateShiftNotes(shift.id, e.target.value);
+  document.getElementById('shiftNotes').addEventListener('blur', async (e) => {
+    await store.updateShiftNotes(shift.id, e.target.value);
   });
 
   document.getElementById('reportIssueBtn').addEventListener('click', () => {
@@ -217,11 +216,11 @@ function renderChecklistTab(container, user, userStations) {
   document.getElementById('cancelIssue').addEventListener('click', () => {
     document.getElementById('issueModal').style.display = 'none';
   });
-  document.getElementById('submitIssue').addEventListener('click', () => {
+  document.getElementById('submitIssue').addEventListener('click', async () => {
     const type = document.getElementById('issueType').value;
     const desc = document.getElementById('issueDesc').value.trim();
     if (!desc) { showToast('Please describe the issue', 'error'); return; }
-    store.addIncident(user.id, shift.station, type, desc);
+    await store.addIncident(user.id, shift.station, type, desc);
     document.getElementById('issueModal').style.display = 'none';
     document.getElementById('issueDesc').value = '';
     showToast('Issue reported successfully', 'success');
@@ -233,12 +232,13 @@ function renderChecklistTab(container, user, userStations) {
   });
 }
 
-// ─── Start Screen ───
-function renderStartScreen(container, user, userStations) {
-  const stationOptions = userStations.map(stId => {
-    const st = store.getStationById(stId);
-    return st ? `<option value="${st.id}">${st.name}</option>` : '';
-  }).join('');
+async function renderStartScreen(container, user, userStations) {
+  const stations = await store.getStations();
+  const stationsMap = new Map(stations.map(s => [s.id, s]));
+  const stationOptions = userStations
+    .map(stId => stationsMap.get(stId))
+    .filter(Boolean)
+    .map(st => `<option value="${st.id}">${st.name}</option>`);
 
   container.innerHTML = `
     <div class="animate-in" style="text-align:center;margin-bottom:var(--space-xl);">
@@ -247,31 +247,32 @@ function renderStartScreen(container, user, userStations) {
         Select which station you are working today and start your closing tasks.
       </p>
     </div>
-
     <div class="card animate-in stagger-1" style="max-width:500px;margin:0 auto;">
       <div class="form-group">
         <label class="form-label">Your Assigned Station</label>
         <select class="form-select" id="startStation">
-          ${stationOptions || '<option value="">No stations assigned</option>'}
+          ${stationOptions.join('') || '<option value="">No stations assigned</option>'}
         </select>
       </div>
-      <button class="btn btn-primary btn-lg" id="startTasksBtn" style="width:100%;margin-top:var(--space-md);" ${!stationOptions ? 'disabled' : ''}>
+      <button class="btn btn-primary btn-lg" id="startTasksBtn" style="width:100%;margin-top:var(--space-md);" ${!stationOptions.length ? 'disabled' : ''}>
         Start Tasks
       </button>
     </div>`;
 
-  document.getElementById('startTasksBtn')?.addEventListener('click', () => {
+  document.getElementById('startTasksBtn')?.addEventListener('click', async () => {
     const stationId = document.getElementById('startStation').value;
     if (!stationId) return;
-    const shift = store.createShift(user.id, stationId);
+    const btn = document.getElementById('startTasksBtn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    const shift = await store.createShift(user.id, stationId);
     if (shift) {
       showToast('Shift started! Complete your checklist.', 'success');
-      renderChecklistTab(container, user, userStations);
+      await renderChecklistTab(container, user, userStations);
     }
   });
 }
 
-// ─── Thank You Screen (after shift completion) ───
 function renderThankYou(container, user) {
   container.innerHTML = `
     <div class="animate-in" style="text-align:center;padding:var(--space-xxl) 0;">
@@ -317,11 +318,21 @@ function checkFinishable(shift, dailyTasks) {
 }
 
 // ═══════════════════════════════════════
-// HISTORY TAB — cleanliness score + notes only (no speed)
+// HISTORY TAB
 // ═══════════════════════════════════════
-function renderHistoryTab(container, user) {
-  const shifts = store.getShiftsByUser(user.id).filter(s => s.scored || s.status === 'completed' || s.status === 'scored').sort((a, b) => b.date.localeCompare(a.date));
-  const streak = store.getUserStreak(user.id);
+async function renderHistoryTab(container, user) {
+  container.innerHTML = `<div style="text-align:center;padding:var(--space-xl);color:var(--white-50);">Loading history...</div>`;
+
+  const [shifts, streak, stations] = await Promise.all([
+    store.getShiftsByUser(user.id),
+    store.getUserStreak(user.id),
+    store.getStations(),
+  ]);
+
+  const stationsMap = new Map(stations.map(s => [s.id, s]));
+  const filteredShifts = shifts
+    .filter(s => s.scored || s.status === 'completed' || s.status === 'scored')
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   container.innerHTML = `
     <div class="animate-in" style="text-align:center;margin-bottom:var(--space-xl);">
@@ -330,11 +341,11 @@ function renderHistoryTab(container, user) {
       ${streak > 0 ? `<div class="streak-badge" style="margin-top:var(--space-md);">${streak} Day Streak</div>` : ''}
     </div>
 
-    ${shifts.length === 0 ? '<div class="empty-state animate-in stagger-1"><p>No completed shifts yet. Start closing your station to build your history.</p></div>' : ''}
+    ${filteredShifts.length === 0 ? '<div class="empty-state animate-in stagger-1"><p>No completed shifts yet. Start closing your station to build your history.</p></div>' : ''}
 
     <div id="historyList">
-      ${shifts.map((s, i) => {
-        const st = store.getStationById(s.station);
+      ${filteredShifts.map((s, i) => {
+        const st = stationsMap.get(s.station);
         const completedItems = s.items ? s.items.filter(item => item.completed) : [];
         const totalItems = s.items ? s.items.length : 0;
         const hasScore = s.scored && s.cleanlinessScore !== null;
@@ -348,8 +359,6 @@ function renderHistoryTab(container, user) {
               : `<span class="badge badge-warning">Awaiting Review</span>`
             }
           </div>
-
-          <!-- Completed Tasks -->
           <div style="margin-bottom:var(--space-md);">
             <h4 style="color:var(--white-50);font-size:0.8rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:var(--space-sm);">Completed Tasks (${completedItems.length}/${totalItems})</h4>
             ${completedItems.map(item => `
@@ -359,13 +368,11 @@ function renderHistoryTab(container, user) {
               </div>
             `).join('')}
           </div>
-
           ${s.notes ? `
           <div style="margin-bottom:var(--space-md);">
             <h4 style="color:var(--white-50);font-size:0.8rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:var(--space-sm);">Your Notes</h4>
             <p style="color:var(--white-70);font-size:0.85rem;font-style:italic;">"${s.notes}"</p>
           </div>` : ''}
-
           ${hasScore ? `
           <div style="border-top:1px solid var(--white-10);padding-top:var(--space-md);">
             <h4 style="color:var(--white-50);font-size:0.8rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:var(--space-sm);">Manager Review</h4>
@@ -381,21 +388,18 @@ function renderHistoryTab(container, user) {
 }
 
 // ═══════════════════════════════════════
-// SETTINGS TAB (Password Reset)
+// SETTINGS TAB
 // ═══════════════════════════════════════
-function renderSettingsTab(container, user) {
-  const userStations = store.getUserStations(user.id);
-  const stationNames = userStations.map(stId => {
-    const st = store.getStationById(stId);
-    return st ? st.name : '--';
-  }).join(', ');
+async function renderSettingsTab(container, user) {
+  const stations = await store.getStations();
+  const stationsMap = new Map(stations.map(s => [s.id, s]));
+  const stationNames = (user.stations || []).map(id => stationsMap.get(id)?.name).filter(Boolean).join(', ');
 
   container.innerHTML = `
     <div class="animate-in" style="text-align:center;margin-bottom:var(--space-xl);">
       <h1 style="font-size:1.6rem;color:var(--gold-400);">Settings</h1>
       <p style="color:var(--white-50);font-size:0.85rem;margin-top:var(--space-xs);">Manage your account</p>
     </div>
-
     <div class="card animate-in stagger-1" style="margin-bottom:var(--space-lg);">
       <div class="card-header"><h3>Profile</h3></div>
       <div style="display:grid;grid-template-columns:auto 1fr;gap:var(--space-sm) var(--space-lg);font-size:0.9rem;">
@@ -406,7 +410,6 @@ function renderSettingsTab(container, user) {
         <span style="color:var(--white-50);font-weight:600;">Role:</span><span style="text-transform:capitalize;">${user.role}</span>
       </div>
     </div>
-
     <div class="card animate-in stagger-2">
       <div class="card-header"><h3>Change Password</h3></div>
       <div class="form-group">
@@ -426,7 +429,7 @@ function renderSettingsTab(container, user) {
       <button class="btn btn-primary" id="changePassBtn">Change Password</button>
     </div>`;
 
-  document.getElementById('changePassBtn').addEventListener('click', () => {
+  document.getElementById('changePassBtn').addEventListener('click', async () => {
     const current = document.getElementById('currentPass').value;
     const newPass = document.getElementById('newPass').value;
     const confirm = document.getElementById('confirmPass').value;
@@ -438,7 +441,7 @@ function renderSettingsTab(container, user) {
     if (!current || !newPass || !confirm) { errEl.textContent = 'Please fill in all fields'; errEl.style.display = 'block'; return; }
     if (newPass !== confirm) { errEl.textContent = 'New passwords do not match'; errEl.style.display = 'block'; return; }
 
-    const result = store.changePassword(user.id, current, newPass);
+    const result = await store.changePassword(user.id, current, newPass);
     if (result.success) {
       successEl.textContent = 'Password changed successfully!';
       successEl.style.display = 'block';
