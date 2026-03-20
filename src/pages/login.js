@@ -1,21 +1,18 @@
 // ═══════════════════════════════════════════════════════════
-// Earl's Kitchen — Login Page (Optimized)
+// Earl's Kitchen — Login Page (Optimized + Roles)
 // ═══════════════════════════════════════════════════════════
 import { store } from '../store.js';
 import { supabase } from '../supabase.js';
 import { setSession, navigate } from '../utils.js';
 
-// Pre-warm Supabase connection as soon as login page loads
 let warmupDone = false;
 function prewarmConnection() {
   if (warmupDone) return;
   warmupDone = true;
-  // Fire a tiny query to establish the connection early
   supabase.from('stations').select('id').limit(1).then(() => {});
 }
 
 export function renderLogin(app) {
-  // Start pre-warming immediately
   prewarmConnection();
 
   app.innerHTML = `
@@ -39,8 +36,9 @@ export function renderLogin(app) {
           <p style="font-size:0.75rem;color:var(--white-30);margin-bottom:var(--space-sm);">DEMO ACCOUNTS</p>
           <p style="font-size:0.8rem;color:var(--white-50);line-height:1.8;">
             <strong style="color:var(--gold-400);">Admin:</strong> admin / admin123<br>
+            <strong style="color:var(--gold-400);">Manager:</strong> headchef / pass123<br>
             <strong style="color:var(--gold-400);">Cook:</strong> james / pass123<br>
-            <span style="color:var(--white-30);">Also: sarah, mike, emma, alex (pass123)</span>
+            <span style="color:var(--white-30);">Also: souschef, sarah, mike, emma, alex (pass123)</span>
           </p>
         </div>
       </div>
@@ -57,14 +55,11 @@ export function renderLogin(app) {
 
     try {
       const found = await store.authenticate(user, pass);
-
       if (found) {
         setSession(found);
-        // Pre-fetch data for the next page while showing loading
         btn.textContent = 'Loading dashboard...';
-        // Warm the cache before navigating
         await Promise.all([store.getUsers(), store.getStations()]);
-        navigate(found.role === 'admin' ? '#/admin' : '#/user');
+        navigate(found.role === 'admin' || found.role === 'manager' ? '#/admin' : '#/user');
       } else {
         document.getElementById('loginError').classList.add('visible');
         setTimeout(() => document.getElementById('loginError').classList.remove('visible'), 3000);

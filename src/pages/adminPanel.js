@@ -1,14 +1,28 @@
 // ═══════════════════════════════════════════════════════════
-// Earl's Kitchen — Admin Panel (Optimized)
+// Earl's Kitchen — Admin Panel (Roles + Collapsible + Edit/Delete)
 // ═══════════════════════════════════════════════════════════
 import { store } from '../store.js';
 import { getSession, clearSession, navigate, showToast, formatTime, formatDate, scoreClass, getInitials } from '../utils.js';
 
 let currentAdminView = 'dashboard';
 
+const MANAGER_TITLES = {
+  expo: 'Expo',
+  sous_chef: 'Sous Chef',
+  assistant_head_chef: 'Asst. Head Chef',
+  head_chef: 'Head Chef',
+};
+
+function formatManagerTitle(title) {
+  return MANAGER_TITLES[title] || title || '';
+}
+
+function isAdmin(session) { return session.role === 'admin'; }
+function isAdminOrManager(session) { return session.role === 'admin' || session.role === 'manager'; }
+
 export async function renderAdminPanel(app, view) {
   const session = getSession();
-  if (!session || session.role !== 'admin') { navigate('#/login'); return; }
+  if (!session || !isAdminOrManager(session)) { navigate('#/login'); return; }
   currentAdminView = view || 'dashboard';
 
   app.innerHTML = `
@@ -20,7 +34,7 @@ export async function renderAdminPanel(app, view) {
     </div>`;
 
   attachSidebarEvents(session);
-  await renderView(currentAdminView);
+  await renderView(currentAdminView, session);
 }
 
 function renderSidebar(session) {
@@ -31,14 +45,21 @@ function renderSidebar(session) {
     { id: 'tasks', label: 'Manage Tasks' },
     { id: 'leaderboard', label: 'Leaderboard' },
     { id: 'incidents', label: 'Incidents' },
-    { id: 'invite', label: 'Invite Users' },
   ];
+  // Only admin can manage accounts
+  if (isAdmin(session)) {
+    navItems.push({ id: 'invite', label: 'Manage Accounts' });
+  }
+
+  const roleLabel = isAdmin(session)
+    ? 'Administrator'
+    : formatManagerTitle(session.manager_title || session.managerTitle);
 
   return `
     <aside class="sidebar" id="adminSidebar">
       <div class="sidebar-logo">
         <h1>Earl's Kitchen</h1>
-        <div class="logo-subtitle">Admin Panel</div>
+        <div class="logo-subtitle">${isAdmin(session) ? 'Admin Panel' : 'Manager Panel'}</div>
       </div>
       <nav class="sidebar-nav">
         ${navItems.map(n => `
@@ -52,7 +73,7 @@ function renderSidebar(session) {
           <div class="user-avatar">${getInitials(session.name)}</div>
           <div class="user-info">
             <div class="user-name">${session.name}</div>
-            <div class="user-role">Administrator</div>
+            <div class="user-role">${roleLabel}</div>
           </div>
         </div>
         <button class="btn btn-sm btn-secondary" style="width:100%;margin-top:var(--space-md);" id="adminLogout">Logout</button>
@@ -66,7 +87,7 @@ function attachSidebarEvents(session) {
       currentAdminView = btn.dataset.view;
       document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      await renderView(currentAdminView);
+      await renderView(currentAdminView, session);
     });
   });
   document.getElementById('adminLogout').addEventListener('click', () => {
@@ -75,37 +96,30 @@ function attachSidebarEvents(session) {
   });
 }
 
-async function renderView(view) {
+async function renderView(view, session) {
   const content = document.getElementById('adminContent');
   content.innerHTML = `<div style="text-align:center;padding:var(--space-xl);color:var(--white-50);">Loading...</div>`;
   switch (view) {
-    case 'dashboard': await renderDashboardView(content); break;
-    case 'users': await renderUsersView(content); break;
-    case 'scoring': await renderScoringView(content); break;
-    case 'tasks': await renderTasksView(content); break;
+    case 'dashboard': await renderDashboardView(content, session); break;
+    case 'users': await renderUsersView(content, session); break;
+    case 'scoring': await renderScoringView(content, session); break;
+    case 'tasks': await renderTasksView(content, session); break;
     case 'leaderboard': await renderLeaderboardView(content); break;
     case 'incidents': await renderIncidentsView(content); break;
-    case 'invite': await renderInviteView(content); break;
-    default: await renderDashboardView(content);
+    case 'invite': if (isAdmin(session)) await renderInviteView(content); break;
+    default: await renderDashboardView(content, session);
   }
 }
 
-// Helper: get station names from cached data
 function getStationNamesFromCache(user, stationsMap) {
-  const stIds = user.stations || [];
-  return stIds.map(id => stationsMap.get(id)?.name).filter(Boolean).join(', ') || '--';
+  return (user.stations || []).map(id => stationsMap.get(id)?.name).filter(Boolean).join(', ') || '--';
 }
 
 // ─── Dashboard View ───
-async function renderDashboardView(el) {
-  // 3 parallel fetches instead of 15+ sequential ones
+async function renderDashboardView(el, session) {
   const [todayShifts, stations, users, allIncidents] = await Promise.all([
-    store.getTodayShifts(),
-    store.getStations(),
-    store.getUsers(),
-    store.getIncidents(),
+    store.getTodayShifts(), store.getStations(), store.getUsers(), store.getIncidents(),
   ]);
-
   const usersMap = new Map(users.map(u => [u.id, u]));
   const completed = todayShifts.filter(s => s.completionPercent === 100).length;
   const inProgress = todayShifts.filter(s => s.status === 'in_progress').length;
@@ -140,10 +154,7 @@ async function renderDashboardView(el) {
           </div>
           <div class="station-cook">${c.cookName}</div>
           <div class="mini-progress"><div class="mini-progress-fill" style="width:${c.pct}%"></div></div>
-          <div class="station-meta">
-            <span>${c.pct}% complete</span>
-            <span>${c.shift && c.shift.durationMinutes ? formatTime(c.shift.durationMinutes) : '--'}</span>
-          </div>
+          <div class="station-meta"><span>${c.pct}% complete</span><span>${c.shift && c.shift.durationMinutes ? formatTime(c.shift.durationMinutes) : '--'}</span></div>
         </div>
       `).join('')}
     </div>
@@ -151,22 +162,18 @@ async function renderDashboardView(el) {
     <div id="stationDetail" style="margin-top:var(--space-xl);"></div>`;
 
   el.querySelectorAll('.station-card[data-station]').forEach(card => {
-    card.addEventListener('click', () => renderStationDetail(card.dataset.station));
+    card.addEventListener('click', () => renderStationDetail(card.dataset.station, session));
   });
 }
 
-// ─── Station Detail ───
-async function renderStationDetail(stationId) {
+// ─── Station Detail (Collapsible + Edit/Delete) ───
+async function renderStationDetail(stationId, session) {
   const detail = document.getElementById('stationDetail');
   detail.innerHTML = `<div style="text-align:center;padding:var(--space-lg);color:var(--white-50);">Loading...</div>`;
 
   const [station, todayShifts, users, allShifts] = await Promise.all([
-    store.getStationById(stationId),
-    store.getTodayShifts(),
-    store.getUsers(),
-    store.getShiftsByStation(stationId),
+    store.getStationById(stationId), store.getTodayShifts(), store.getUsers(), store.getShiftsByStation(stationId),
   ]);
-
   const usersMap = new Map(users.map(u => [u.id, u]));
   const todayShift = todayShifts.find(s => s.station === stationId);
   const cook = todayShift ? usersMap.get(todayShift.userId) : null;
@@ -189,60 +196,144 @@ async function renderStationDetail(stationId) {
             <span>${todayShift.items.filter(i => i.completed).length} / ${todayShift.items.length} items</span>
           </div>
         </div>
-        <div style="text-align:center;">
-          <div style="font-family:var(--font-display);font-size:1.4rem;font-weight:800;color:var(--white);">${todayShift.completionPercent}%</div>
-        </div>
-      </div>
-
-      <h4 style="color:var(--white-70);margin-bottom:var(--space-md);font-size:0.9rem;">Today's Checklist</h4>
-      <div style="margin-bottom:var(--space-lg);">
-        ${todayShift.items.map(item => `
-          <div style="display:flex;align-items:center;gap:var(--space-sm);padding:var(--space-sm) 0;border-bottom:1px solid var(--white-05);">
-            <span style="color:${item.completed ? 'var(--success)' : 'var(--white-30)'};">${item.completed ? '[x]' : '[ ]'}</span>
-            <span style="color:${item.completed ? 'var(--white-50)' : 'var(--white-70)'};${item.completed ? 'text-decoration:line-through;' : ''}">${item.text}</span>
-          </div>
-        `).join('')}
-      </div>
-      ` : '<p style="color:var(--white-30);margin-bottom:var(--space-lg);">No active shift today</p>'}
+      </div>` : '<p style="color:var(--white-30);margin-bottom:var(--space-lg);">No active shift today</p>'}
 
       <h4 style="color:var(--white-70);margin-bottom:var(--space-md);font-size:0.9rem;">Shift History</h4>
       ${scoredShifts.length ? `
-      <div>
-        ${scoredShifts.slice(0, 14).map(s => {
+      <div id="shiftHistoryList">
+        ${scoredShifts.slice(0, 20).map(s => {
           const u = usersMap.get(s.userId);
-          return `<div style="border:1px solid var(--white-10);border-radius:var(--radius-md);padding:var(--space-md);margin-bottom:var(--space-md);">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-sm);">
-              <span style="color:var(--white-70);font-weight:600;">${formatDate(s.date)} — ${u ? u.name : '--'}</span>
+          return `
+          <div style="border:1px solid var(--white-10);border-radius:var(--radius-md);margin-bottom:var(--space-sm);overflow:hidden;" data-shift-id="${s.id}">
+            <div class="shift-header-row" data-toggle="${s.id}" style="display:flex;justify-content:space-between;align-items:center;padding:var(--space-md);cursor:pointer;transition:background 0.15s ease;">
+              <div style="display:flex;align-items:center;gap:var(--space-md);">
+                <span class="shift-arrow" data-arrow="${s.id}" style="color:var(--white-50);font-size:0.8rem;transition:transform 0.2s ease;">▶</span>
+                <span style="color:var(--white-70);font-weight:600;">${formatDate(s.date)}</span>
+                <span style="color:var(--white-50);font-size:0.85rem;">— ${u ? u.name : '--'}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:var(--space-md);">
+                <span class="badge badge-${s.overallScore>=75?'success':s.overallScore>=50?'warning':'danger'}">${s.overallScore}</span>
+              </div>
             </div>
-            <div style="display:flex;gap:var(--space-lg);font-size:0.85rem;">
-              <span>Speed: <span class="badge badge-${s.speedScore>=75?'success':s.speedScore>=50?'warning':'danger'}">${s.speedScore}</span></span>
-              <span>Cleanliness: <span class="badge badge-${s.cleanlinessScore>=75?'success':s.cleanlinessScore>=50?'warning':'danger'}">${s.cleanlinessScore}</span></span>
-              <span>Overall: <strong>${s.overallScore}</strong></span>
+            <div class="shift-detail-panel" data-panel="${s.id}" style="display:none;padding:0 var(--space-md) var(--space-md);border-top:1px solid var(--white-05);">
+              <div style="display:flex;gap:var(--space-lg);font-size:0.85rem;padding:var(--space-md) 0;">
+                <span>Speed: <span class="badge badge-${s.speedScore>=75?'success':s.speedScore>=50?'warning':'danger'}">${s.speedScore}</span></span>
+                <span>Cleanliness: <span class="badge badge-${s.cleanlinessScore>=75?'success':s.cleanlinessScore>=50?'warning':'danger'}">${s.cleanlinessScore}</span></span>
+                <span>Duration: ${s.durationMinutes ? formatTime(s.durationMinutes) : '--'}</span>
+              </div>
+              ${s.adminComments ? `<p style="color:var(--white-50);font-size:0.8rem;font-style:italic;margin-bottom:var(--space-md);">"${s.adminComments}"</p>` : ''}
+              ${s.items && s.items.length ? `
+              <details style="margin-bottom:var(--space-md);">
+                <summary style="cursor:pointer;color:var(--gold-400);font-size:0.8rem;font-weight:600;">View Checklist (${s.items.filter(i=>i.completed).length}/${s.items.length})</summary>
+                <div style="padding:var(--space-sm) 0;">
+                  ${s.items.map(item => `
+                    <div style="display:flex;align-items:center;gap:var(--space-sm);padding:2px 0;">
+                      <span style="color:${item.completed ? 'var(--success)' : 'var(--white-30)'};">${item.completed ? '✓' : '○'}</span>
+                      <span style="color:${item.completed ? 'var(--white-70)' : 'var(--white-30)'};font-size:0.8rem;${item.completed ? '' : 'text-decoration:line-through;'}">${item.text}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </details>` : ''}
+              <div class="shift-edit-form" data-edit="${s.id}" style="display:none;padding-top:var(--space-md);border-top:1px solid var(--white-10);">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md);margin-bottom:var(--space-md);">
+                  <div>
+                    <label class="form-label">Speed</label>
+                    <input type="number" class="form-input" min="0" max="100" value="${s.speedScore}" data-field="speed" data-sid="${s.id}">
+                  </div>
+                  <div>
+                    <label class="form-label">Cleanliness</label>
+                    <input type="number" class="form-input" min="0" max="100" value="${s.cleanlinessScore}" data-field="clean" data-sid="${s.id}">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Comments</label>
+                  <textarea class="form-textarea" data-field="comments" data-sid="${s.id}">${s.adminComments || ''}</textarea>
+                </div>
+                <div style="display:flex;gap:var(--space-sm);">
+                  <button class="btn btn-primary btn-sm save-edit-btn" data-sid="${s.id}">Save Changes</button>
+                  <button class="btn btn-secondary btn-sm cancel-edit-btn" data-sid="${s.id}">Cancel</button>
+                </div>
+              </div>
+              <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);">
+                <button class="btn btn-sm btn-secondary edit-shift-btn" data-sid="${s.id}">Edit Score</button>
+                ${isAdmin(session) ? `<button class="btn btn-sm btn-danger delete-shift-btn" data-sid="${s.id}">Delete</button>` : ''}
+              </div>
             </div>
-            ${s.adminComments ? `<p style="color:var(--white-50);font-size:0.8rem;margin-top:var(--space-sm);font-style:italic;">"${s.adminComments}"</p>` : ''}
           </div>`;
         }).join('')}
       </div>` : '<p style="color:var(--white-30);">No history yet</p>'}
     </div>`;
 
+  // Collapsible toggle
+  detail.querySelectorAll('.shift-header-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = row.dataset.toggle;
+      const panel = detail.querySelector(`[data-panel="${id}"]`);
+      const arrow = detail.querySelector(`[data-arrow="${id}"]`);
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        arrow.style.transform = 'rotate(90deg)';
+      } else {
+        panel.style.display = 'none';
+        arrow.style.transform = 'rotate(0deg)';
+      }
+    });
+  });
+
+  // Edit buttons
+  detail.querySelectorAll('.edit-shift-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const form = detail.querySelector(`[data-edit="${btn.dataset.sid}"]`);
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+  });
+
+  detail.querySelectorAll('.cancel-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      detail.querySelector(`[data-edit="${btn.dataset.sid}"]`).style.display = 'none';
+    });
+  });
+
+  detail.querySelectorAll('.save-edit-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const sid = btn.dataset.sid;
+      const speed = parseInt(detail.querySelector(`input[data-field="speed"][data-sid="${sid}"]`).value);
+      const clean = parseInt(detail.querySelector(`input[data-field="clean"][data-sid="${sid}"]`).value);
+      const comments = detail.querySelector(`textarea[data-field="comments"][data-sid="${sid}"]`).value;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      await store.updateScoredShift(sid, speed, clean, comments);
+      showToast('Shift updated!', 'success');
+      await renderStationDetail(stationId, session);
+    });
+  });
+
+  // Delete buttons (admin only)
+  detail.querySelectorAll('.delete-shift-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this shift record permanently?')) return;
+      btn.disabled = true;
+      btn.textContent = 'Deleting...';
+      await store.deleteShift(btn.dataset.sid);
+      showToast('Shift deleted', 'success');
+      await renderStationDetail(stationId, session);
+    });
+  });
+
   detail.scrollIntoView({ behavior: 'smooth' });
 }
 
 // ─── Users View ───
-async function renderUsersView(el) {
+async function renderUsersView(el, session) {
   const [users, stations] = await Promise.all([store.getUsers(), store.getStations()]);
   const stationsMap = new Map(stations.map(s => [s.id, s]));
   const cooks = users.filter(u => u.role === 'cook');
 
-  // Batch fetch all scores at once
   const scorePromises = cooks.map(c => store.getUserAverageScores(c.id));
   const scores = await Promise.all(scorePromises);
-
-  const rows = cooks.map((cook, i) => ({
-    cook,
-    avg: scores[i],
-    stNames: getStationNamesFromCache(cook, stationsMap),
-  }));
+  const rows = cooks.map((cook, i) => ({ cook, avg: scores[i], stNames: getStationNamesFromCache(cook, stationsMap) }));
 
   el.innerHTML = `
     <div class="page-header animate-in"><h1>Team Members</h1><p>Performance history and analytics</p></div>
@@ -279,12 +370,9 @@ async function renderUserDetail(userId) {
   detail.innerHTML = `<div style="text-align:center;padding:var(--space-lg);color:var(--white-50);">Loading...</div>`;
 
   const [user, shifts, avg, stations] = await Promise.all([
-    store.getUserById(userId),
-    store.getShiftsByUser(userId),
-    store.getUserAverageScores(userId),
-    store.getStations(),
+    store.getUserById(userId), store.getShiftsByUser(userId),
+    store.getUserAverageScores(userId), store.getStations(),
   ]);
-
   const stationsMap = new Map(stations.map(s => [s.id, s]));
   const stNames = getStationNamesFromCache(user, stationsMap);
   const scoredShifts = shifts.filter(s => s.scored);
@@ -305,30 +393,23 @@ async function renderUserDetail(userId) {
         <tbody>${scoredShifts.map(s => {
           const st = stationsMap.get(s.station);
           return `<tr>
-            <td>${formatDate(s.date)}</td>
-            <td>${st ? st.name : '--'}</td>
+            <td>${formatDate(s.date)}</td><td>${st ? st.name : '--'}</td>
             <td><span class="badge badge-${s.speedScore>=75?'success':s.speedScore>=50?'warning':'danger'}">${s.speedScore}</span></td>
             <td><span class="badge badge-${s.cleanlinessScore>=75?'success':s.cleanlinessScore>=50?'warning':'danger'}">${s.cleanlinessScore}</span></td>
             <td><strong>${s.overallScore}</strong></td>
             <td style="color:var(--white-50);max-width:200px;overflow:hidden;text-overflow:ellipsis;">${s.adminComments || '--'}</td>
           </tr>`;
         }).join('')}</tbody>
-      </table>` : '<p class="empty-state"><span class="empty-icon">--</span><br>No scored shifts yet</p>'}
+      </table>` : '<p class="empty-state">No scored shifts yet</p>'}
     </div>`;
   detail.scrollIntoView({ behavior: 'smooth' });
 }
 
 // ─── Scoring View ───
-async function renderScoringView(el) {
-  const [todayShifts, users, stations] = await Promise.all([
-    store.getTodayShifts(),
-    store.getUsers(),
-    store.getStations(),
-  ]);
-
+async function renderScoringView(el, session) {
+  const [todayShifts, users, stations] = await Promise.all([store.getTodayShifts(), store.getUsers(), store.getStations()]);
   const usersMap = new Map(users.map(u => [u.id, u]));
   const stationsMap = new Map(stations.map(s => [s.id, s]));
-
   const needsScoring = todayShifts.filter(s => s.status === 'completed' && !s.scored);
   const scored = todayShifts.filter(s => s.scored);
 
@@ -374,7 +455,6 @@ async function renderScoringView(el) {
         </div>`;
       }).join('')}
     </div>
-
     ${scored.length > 0 ? `
     <div class="card animate-in" style="margin-top:var(--space-lg);">
       <div class="card-header"><h3>Today's Scored Shifts</h3></div>
@@ -396,29 +476,24 @@ async function renderScoringView(el) {
       }).join('')}
     </div>` : ''}`;
 
-  el.querySelectorAll('.speed-slider').forEach(slider => {
-    slider.addEventListener('input', () => { el.querySelector(`.speed-val-${slider.dataset.shift}`).textContent = slider.value; });
-  });
-  el.querySelectorAll('.clean-slider').forEach(slider => {
-    slider.addEventListener('input', () => { el.querySelector(`.clean-val-${slider.dataset.shift}`).textContent = slider.value; });
-  });
+  el.querySelectorAll('.speed-slider').forEach(s => { s.addEventListener('input', () => { el.querySelector(`.speed-val-${s.dataset.shift}`).textContent = s.value; }); });
+  el.querySelectorAll('.clean-slider').forEach(s => { s.addEventListener('input', () => { el.querySelector(`.clean-val-${s.dataset.shift}`).textContent = s.value; }); });
   el.querySelectorAll('.submit-score').forEach(btn => {
     btn.addEventListener('click', async () => {
       const sid = btn.dataset.shift;
       const speed = parseInt(el.querySelector(`.speed-slider[data-shift="${sid}"]`).value);
       const clean = parseInt(el.querySelector(`.clean-slider[data-shift="${sid}"]`).value);
       const comments = el.querySelector(`.score-comments[data-shift="${sid}"]`).value;
-      btn.disabled = true;
-      btn.textContent = 'Saving...';
+      btn.disabled = true; btn.textContent = 'Saving...';
       await store.scoreShift(sid, speed, clean, comments);
       showToast('Shift scored successfully!', 'success');
-      await renderScoringView(el);
+      await renderScoringView(el, session);
     });
   });
 }
 
 // ─── Tasks View ───
-async function renderTasksView(el) {
+async function renderTasksView(el, session) {
   const [stations, users] = await Promise.all([store.getStations(), store.getUsers()]);
   const stationsMap = new Map(stations.map(s => [s.id, s]));
   const cooks = users.filter(u => u.role === 'cook');
@@ -437,69 +512,44 @@ async function renderTasksView(el) {
     btn.addEventListener('click', async () => {
       el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      if (btn.dataset.tab === 'daily') await renderDailyTab();
-      else await renderTemplateTab();
+      if (btn.dataset.tab === 'daily') await renderDailyTab(); else await renderTemplateTab();
     });
   });
 
   async function renderDailyTab() {
     const container = document.getElementById('taskTabContent');
     const today = new Date().toISOString().split('T')[0];
-    const [tasks, commonTasks] = await Promise.all([
-      store.getDailyTasks(today),
-      store.getCommonDailyTasks(),
-    ]);
+    const [tasks, commonTasks] = await Promise.all([store.getDailyTasks(today), store.getCommonDailyTasks()]);
     const usersMap = new Map(users.map(u => [u.id, u]));
-
-    const cookOptions = cooks.map(c =>
-      `<option value="${c.id}">${c.name} (${getStationNamesFromCache(c, stationsMap)})</option>`
-    ).join('');
+    const cookOptions = cooks.map(c => `<option value="${c.id}">${c.name} (${getStationNamesFromCache(c, stationsMap)})</option>`).join('');
 
     container.innerHTML = `
       <div class="card animate-in">
         <div class="card-header"><h3>Today's Assigned Tasks</h3></div>
-        ${tasks.length ? tasks.map(t => {
-          const cook = usersMap.get(t.assignedTo);
-          return `
+        ${tasks.length ? tasks.map(t => `
           <div style="display:flex;align-items:center;gap:var(--space-md);padding:var(--space-sm) 0;border-bottom:1px solid var(--white-05);">
             <span class="badge ${t.completed ? 'badge-success' : 'badge-warning'}">${t.completed ? 'Done' : 'Pending'}</span>
             <span style="flex:1;color:var(--white-70);">${t.text}</span>
-            <span style="color:var(--white-50);font-size:0.8rem;">${cook ? cook.name : '--'}</span>
+            <span style="color:var(--white-50);font-size:0.8rem;">${usersMap.get(t.assignedTo)?.name || '--'}</span>
             <button class="btn btn-sm btn-danger remove-daily" data-id="${t.id}">X</button>
-          </div>`;
-        }).join('') : '<p style="color:var(--white-30);padding:var(--space-md);">No daily tasks assigned yet</p>'}
+          </div>`).join('') : '<p style="color:var(--white-30);padding:var(--space-md);">No daily tasks assigned yet</p>'}
       </div>
       <div class="card animate-in stagger-1" style="margin-top:var(--space-lg);">
         <h3 style="margin-bottom:var(--space-lg);">Add Daily Task</h3>
-        <div class="form-group">
-          <label class="form-label">Quick Select</label>
-          <select class="form-select" id="commonTaskSelect">
-            <option value="">-- Pick a common task --</option>
-            ${commonTasks.map(t => `<option value="${t}">${t}</option>`).join('')}
-          </select>
+        <div class="form-group"><label class="form-label">Quick Select</label>
+          <select class="form-select" id="commonTaskSelect"><option value="">-- Pick a common task --</option>${commonTasks.map(t => `<option value="${t}">${t}</option>`).join('')}</select>
         </div>
-        <div class="form-group">
-          <label class="form-label">Task Description</label>
-          <input type="text" class="form-input" id="newDailyText" placeholder="e.g. Deep clean walk-in shelves">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Assign To</label>
-          <select class="form-select" id="newDailyAssign">${cookOptions}</select>
-        </div>
+        <div class="form-group"><label class="form-label">Task Description</label><input type="text" class="form-input" id="newDailyText" placeholder="e.g. Deep clean walk-in shelves"></div>
+        <div class="form-group"><label class="form-label">Assign To</label><select class="form-select" id="newDailyAssign">${cookOptions}</select></div>
         <button class="btn btn-primary" id="addDailyBtn">Add Task</button>
       </div>`;
 
-    document.getElementById('commonTaskSelect').addEventListener('change', (e) => {
-      if (e.target.value) document.getElementById('newDailyText').value = e.target.value;
-    });
-    container.querySelectorAll('.remove-daily').forEach(btn => {
-      btn.addEventListener('click', async () => { await store.removeDailyTask(btn.dataset.id); await renderDailyTab(); });
-    });
+    document.getElementById('commonTaskSelect').addEventListener('change', (e) => { if (e.target.value) document.getElementById('newDailyText').value = e.target.value; });
+    container.querySelectorAll('.remove-daily').forEach(btn => { btn.addEventListener('click', async () => { await store.removeDailyTask(btn.dataset.id); await renderDailyTab(); }); });
     document.getElementById('addDailyBtn')?.addEventListener('click', async () => {
       const text = document.getElementById('newDailyText').value.trim();
-      const assign = document.getElementById('newDailyAssign').value;
       if (!text) { showToast('Enter a task description', 'error'); return; }
-      await store.addDailyTask(text, assign);
+      await store.addDailyTask(text, document.getElementById('newDailyAssign').value);
       showToast('Task assigned!', 'success');
       await renderDailyTab();
     });
@@ -510,11 +560,8 @@ async function renderTasksView(el) {
     container.innerHTML = `
       <div class="card animate-in">
         <div class="card-header"><h3>Station Checklist Templates</h3></div>
-        <div class="form-group">
-          <label class="form-label">Select Station</label>
-          <select class="form-select" id="templateStation">
-            ${stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
-          </select>
+        <div class="form-group"><label class="form-label">Select Station</label>
+          <select class="form-select" id="templateStation">${stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}</select>
         </div>
         <div id="templateItems"></div>
         <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-lg);">
@@ -532,20 +579,15 @@ async function renderTasksView(el) {
           <span class="badge badge-info">${item.category}</span>
           <button class="btn btn-sm btn-danger remove-tmpl" data-station="${stId}" data-id="${item.id}">X</button>
         </div>`).join('');
-
-      document.querySelectorAll('.remove-tmpl').forEach(btn => {
-        btn.addEventListener('click', async () => { await store.removeChecklistItem(btn.dataset.station, btn.dataset.id); await loadItems(); });
-      });
+      document.querySelectorAll('.remove-tmpl').forEach(btn => { btn.addEventListener('click', async () => { await store.removeChecklistItem(btn.dataset.station, btn.dataset.id); await loadItems(); }); });
     };
 
     document.getElementById('templateStation').addEventListener('change', loadItems);
     await loadItems();
-
     document.getElementById('addTemplateBtn').addEventListener('click', async () => {
       const text = document.getElementById('newTemplateItem').value.trim();
-      const stId = document.getElementById('templateStation').value;
       if (!text) return;
-      await store.addChecklistItem(stId, text);
+      await store.addChecklistItem(document.getElementById('templateStation').value, text);
       document.getElementById('newTemplateItem').value = '';
       showToast('Item added!', 'success');
       await loadItems();
@@ -557,22 +599,18 @@ async function renderTasksView(el) {
 async function renderLeaderboardView(el) {
   const [board, stations] = await Promise.all([store.getLeaderboard(), store.getStations()]);
   const stationsMap = new Map(stations.map(s => [s.id, s]));
-
   el.innerHTML = `
     <div class="page-header animate-in"><h1>Leaderboard</h1><p>Top performers this period</p></div>
     <div class="card animate-in stagger-1">
-      ${board.map((cook, i) => {
-        const stNames = getStationNamesFromCache(cook, stationsMap);
-        return `
+      ${board.map((cook, i) => `
         <div class="leaderboard-item">
           <div class="leaderboard-rank ${i<3?'rank-'+(i+1):'rank-other'}">${i+1}</div>
           <div class="leaderboard-info">
             <div class="leaderboard-name">${cook.name}</div>
-            <div class="leaderboard-station">${stNames} | ${cook.shiftCount} shifts | ${cook.streak || 0} day streak</div>
+            <div class="leaderboard-station">${getStationNamesFromCache(cook, stationsMap)} | ${cook.shiftCount} shifts | ${cook.streak || 0} day streak</div>
           </div>
           <div class="leaderboard-score">${cook.avgScore}</div>
-        </div>`;
-      }).join('')}
+        </div>`).join('')}
     </div>`;
 }
 
@@ -587,75 +625,64 @@ async function renderIncidentsView(el) {
     <div class="page-header animate-in"><h1>Incidents</h1><p>Equipment issues and supply shortages</p></div>
     <div class="card animate-in stagger-1">
       <div class="card-header"><h3>Open Issues (${open.length})</h3></div>
-      ${open.length ? `<div class="incident-list">${open.map(inc => {
-        const user = usersMap.get(inc.userId);
-        return `
+      ${open.length ? `<div class="incident-list">${open.map(inc => `
         <div class="incident-item">
           <div class="incident-type" style="color:var(--warning);">${inc.type.toUpperCase()}</div>
           <div class="incident-desc">${inc.description}</div>
-          <div class="incident-time">${user?.name || '--'} | ${formatDate(inc.date)}</div>
+          <div class="incident-time">${usersMap.get(inc.userId)?.name || '--'} | ${formatDate(inc.date)}</div>
           <button class="btn btn-sm btn-secondary resolve-inc" data-id="${inc.id}" style="margin-top:var(--space-sm);">Mark Resolved</button>
-        </div>`;
-      }).join('')}</div>` : '<p style="color:var(--white-30);padding:var(--space-md);">No open issues</p>'}
+        </div>`).join('')}</div>` : '<p style="color:var(--white-30);padding:var(--space-md);">No open issues</p>'}
     </div>
     ${resolved.length ? `<div class="card animate-in stagger-2" style="margin-top:var(--space-lg);">
       <div class="card-header"><h3>Resolved (${resolved.length})</h3></div>
-      <div class="incident-list">${resolved.map(inc => {
-        const user = usersMap.get(inc.userId);
-        return `
+      <div class="incident-list">${resolved.map(inc => `
         <div class="incident-item" style="opacity:0.6;">
           <div class="incident-type" style="color:var(--success);">RESOLVED: ${inc.type.toUpperCase()}</div>
           <div class="incident-desc">${inc.description}</div>
-          <div class="incident-time">${user?.name || '--'} | ${formatDate(inc.date)}</div>
-        </div>`;
-      }).join('')}</div></div>` : ''}`;
+          <div class="incident-time">${usersMap.get(inc.userId)?.name || '--'} | ${formatDate(inc.date)}</div>
+        </div>`).join('')}</div></div>` : ''}`;
 
   el.querySelectorAll('.resolve-inc').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      await store.resolveIncident(btn.dataset.id);
-      showToast('Incident resolved', 'success');
-      await renderIncidentsView(el);
-    });
+    btn.addEventListener('click', async () => { await store.resolveIncident(btn.dataset.id); showToast('Incident resolved', 'success'); await renderIncidentsView(el); });
   });
 }
 
-// ─── Invite Users View ───
+// ─── Manage Accounts View (Admin Only) ───
 async function renderInviteView(el) {
-  const [stations, users, invitations] = await Promise.all([
-    store.getStations(),
-    store.getUsers(),
-    store.getInvitations(),
-  ]);
+  const [stations, users, invitations] = await Promise.all([store.getStations(), store.getUsers(), store.getInvitations()]);
   const stationsMap = new Map(stations.map(s => [s.id, s]));
 
   el.innerHTML = `
-    <div class="page-header animate-in"><h1>Invite Users</h1><p>Add new team members</p></div>
+    <div class="page-header animate-in"><h1>Manage Accounts</h1><p>Add team members and manage roles</p></div>
     <div class="card animate-in stagger-1">
       <h3 style="margin-bottom:var(--space-lg);">Add New User</h3>
+      <div class="form-group"><label class="form-label">Full Name</label><input type="text" class="form-input" id="invName" placeholder="e.g. John Smith"></div>
+      <div class="form-group"><label class="form-label">Email Address</label><input type="email" class="form-input" id="invEmail" placeholder="e.g. john@earlskitchen.com"></div>
+      <div class="form-group"><label class="form-label">Username</label><input type="text" class="form-input" id="invUsername" placeholder="e.g. john"></div>
+      <div class="form-group"><label class="form-label">Password</label><input type="text" class="form-input" id="invPassword" placeholder="Temporary password"></div>
       <div class="form-group">
-        <label class="form-label">Full Name</label>
-        <input type="text" class="form-input" id="invName" placeholder="e.g. John Smith">
+        <label class="form-label">Role</label>
+        <select class="form-select" id="invRole">
+          <option value="cook">Cook</option>
+          <option value="manager">Manager</option>
+        </select>
       </div>
-      <div class="form-group">
-        <label class="form-label">Email Address</label>
-        <input type="email" class="form-input" id="invEmail" placeholder="e.g. john@earlskitchen.com">
+      <div class="form-group" id="managerTitleGroup" style="display:none;">
+        <label class="form-label">Manager Title</label>
+        <select class="form-select" id="invManagerTitle">
+          <option value="expo">Expo</option>
+          <option value="sous_chef">Sous Chef</option>
+          <option value="assistant_head_chef">Assistant Head Chef</option>
+          <option value="head_chef">Head Chef</option>
+        </select>
       </div>
-      <div class="form-group">
-        <label class="form-label">Username</label>
-        <input type="text" class="form-input" id="invUsername" placeholder="e.g. john">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <input type="text" class="form-input" id="invPassword" placeholder="Temporary password">
-      </div>
-      <div class="form-group">
+      <div class="form-group" id="stationGroup">
         <label class="form-label">Assign Stations</label>
         <div id="stationCheckboxes" style="display:flex;flex-wrap:wrap;gap:var(--space-md);padding:var(--space-sm) 0;">
           ${stations.map(s => `
             <label style="display:flex;align-items:center;gap:var(--space-xs);color:var(--white-70);cursor:pointer;">
               <input type="checkbox" value="${s.id}" class="station-checkbox"> ${s.name}
-            </label>
-          `).join('')}
+            </label>`).join('')}
         </div>
       </div>
       <button class="btn btn-primary" id="addUserBtn">Add User</button>
@@ -663,33 +690,40 @@ async function renderInviteView(el) {
     <div class="card animate-in stagger-2" style="margin-top:var(--space-lg);">
       <div class="card-header"><h3>Current Team</h3></div>
       <table class="data-table">
-        <thead><tr><th>Name</th><th>Username</th><th>Stations</th><th>Email</th><th>Role</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Title</th><th>Stations</th><th>Email</th><th></th></tr></thead>
         <tbody>
           ${users.map(u => `
             <tr>
               <td>${u.name}</td>
               <td>${u.username}</td>
+              <td><span class="badge ${u.role === 'admin' ? 'badge-gold' : u.role === 'manager' ? 'badge-info' : 'badge-success'}">${u.role}</span></td>
+              <td>${u.role === 'manager' ? formatManagerTitle(u.managerTitle || u.manager_title) : '--'}</td>
               <td>${getStationNamesFromCache(u, stationsMap)}</td>
               <td style="color:var(--white-50);">${u.email || '--'}</td>
-              <td><span class="badge ${u.role === 'admin' ? 'badge-gold' : 'badge-info'}">${u.role}</span></td>
               <td>${u.role !== 'admin' ? `<button class="btn btn-sm btn-danger remove-user" data-id="${u.id}">Remove</button>` : ''}</td>
-            </tr>
-          `).join('')}
+            </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
+
+  // Show/hide manager title based on role selection
+  document.getElementById('invRole').addEventListener('change', (e) => {
+    document.getElementById('managerTitleGroup').style.display = e.target.value === 'manager' ? 'block' : 'none';
+  });
 
   document.getElementById('addUserBtn').addEventListener('click', async () => {
     const name = document.getElementById('invName').value.trim();
     const email = document.getElementById('invEmail').value.trim();
     const username = document.getElementById('invUsername').value.trim();
     const password = document.getElementById('invPassword').value.trim();
+    const role = document.getElementById('invRole').value;
+    const managerTitle = role === 'manager' ? document.getElementById('invManagerTitle').value : null;
     const selectedStations = [...document.querySelectorAll('.station-checkbox:checked')].map(cb => cb.value);
 
     if (!name || !username || !password) { showToast('Please fill in name, username, and password', 'error'); return; }
     if (users.find(u => u.username === username)) { showToast('Username already exists', 'error'); return; }
 
-    await store.addUser(name, username, password, email, 'cook', selectedStations);
+    await store.addUser(name, username, password, email, role, selectedStations, managerTitle);
     showToast('User added successfully', 'success');
     await renderInviteView(el);
   });

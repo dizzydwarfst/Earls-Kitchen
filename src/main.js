@@ -15,7 +15,7 @@ async function router() {
 
   if (hash === '#/login' || hash === '' || hash === '#/') {
     if (session) {
-      navigate(session.role === 'admin' ? '#/admin' : '#/user');
+      navigate(session.role === 'admin' || session.role === 'manager' ? '#/admin' : '#/user');
       return;
     }
     renderLogin(app);
@@ -23,7 +23,7 @@ async function router() {
     if (!session || session.role !== 'cook') { navigate('#/login'); return; }
     await renderUserDashboard(app);
   } else if (hash.startsWith('#/admin')) {
-    if (!session || session.role !== 'admin') { navigate('#/login'); return; }
+    if (!session || (session.role !== 'admin' && session.role !== 'manager')) { navigate('#/login'); return; }
     const view = hash.replace('#/admin/', '').replace('#/admin', '') || 'dashboard';
     await renderAdminPanel(app, view);
   } else {

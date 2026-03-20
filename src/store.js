@@ -1,15 +1,14 @@
 // ═══════════════════════════════════════════════════════════
-// Earl's Kitchen — Data Store (Supabase persistence, optimized)
+// Earl's Kitchen — Data Store (Supabase, optimized + roles)
 // ═══════════════════════════════════════════════════════════
 import { supabase } from './supabase.js';
 
 class Store {
   constructor() {
-    // In-memory cache — loaded once, invalidated on writes
     this._users = null;
     this._stations = null;
     this._userStations = null;
-    this._templates = {};  // keyed by station_id
+    this._templates = {};
   }
 
   // ─── Cache Helpers ───
@@ -21,6 +20,7 @@ class Store {
       this._users = (data || []).map(u => ({
         ...u,
         stations: this._userStations.filter(s => s.user_id === u.id).map(s => s.station_id),
+        managerTitle: u.manager_title || null,
       }));
     }
     return this._users;
@@ -37,15 +37,12 @@ class Store {
   _invalidateUsers() { this._users = null; this._userStations = null; }
   _invalidateStations() { this._stations = null; }
 
-  // ─── Shift hydration (batch) ───
+  // ─── Shift hydration ───
   async _hydrateShifts(shifts) {
     if (!shifts || !shifts.length) return [];
     const ids = shifts.map(s => s.id);
     const { data: allItems } = await supabase
-      .from('shift_items')
-      .select('*')
-      .in('shift_id', ids)
-      .order('sort_order');
+      .from('shift_items').select('*').in('shift_id', ids).order('sort_order');
     const itemsByShift = {};
     (allItems || []).forEach(i => {
       if (!itemsByShift[i.shift_id]) itemsByShift[i.shift_id] = [];
@@ -79,19 +76,14 @@ class Store {
   // ─── Auth ───
   async authenticate(username, password) {
     const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .eq('password', password)
-      .single();
+      .from('users').select('*')
+      .eq('username', username).eq('password', password).single();
     if (error || !data) return null;
     const stations = await this.getUserStations(data.id);
-    return { ...data, stations };
+    return { ...data, stations, managerTitle: data.manager_title || null };
   }
 
-  async getUsers() {
-    return this._ensureUsers();
-  }
+  async getUsers() { return this._ensureUsers(); }
 
   async getUserById(id) {
     const users = await this._ensureUsers();
@@ -117,27 +109,39 @@ class Store {
   async setUserStations(userId, stationsArray) {
     await supabase.from('user_stations').delete().eq('user_id', userId);
     if (stationsArray && stationsArray.length) {
-      const rows = stationsArray.map(s => ({ user_id: userId, station_id: s }));
-      await supabase.from('user_stations').insert(rows);
+      await supabase.from('user_stations').insert(stationsArray.map(s => ({ user_id: userId, station_id: s })));
     }
     this._invalidateUsers();
   }
 
   // ─── User Management ───
-  async addUser(name, username, password, email, role, stations) {
+  async addUser(name, username, password, email, role, stations, managerTitle) {
     const id = `user_${Date.now()}`;
-    const newUser = { id, username, password, name, role: role || 'cook', email: email || '', streak: 0 };
+    const newUser = {
+      id, username, password, name,
+      role: role || 'cook',
+      email: email || '',
+      streak: 0,
+      manager_title: managerTitle || null,
+    };
     await supabase.from('users').insert(newUser);
     const stArr = Array.isArray(stations) ? stations : (stations ? [stations] : []);
     if (stArr.length) {
       await supabase.from('user_stations').insert(stArr.map(s => ({ user_id: id, station_id: s })));
     }
     this._invalidateUsers();
-    return { ...newUser, stations: stArr };
+    return { ...newUser, stations: stArr, managerTitle: managerTitle || null };
   }
 
   async removeUser(userId) {
     await supabase.from('users').delete().eq('id', userId);
+    this._invalidateUsers();
+  }
+
+  async updateUserRole(userId, role, managerTitle) {
+    const updates = { role };
+    updates.manager_title = role === 'manager' ? (managerTitle || null) : null;
+    await supabase.from('users').update(updates).eq('id', userId);
     this._invalidateUsers();
   }
 
@@ -158,10 +162,7 @@ class Store {
   }
 
   // ─── Stations ───
-  async getStations() {
-    return this._ensureStations();
-  }
-
+  async getStations() { return this._ensureStations(); }
   async getStationById(id) {
     const stations = await this._ensureStations();
     return stations.find(s => s.id === id) || null;
@@ -171,10 +172,8 @@ class Store {
   async getChecklistTemplate(stationId) {
     if (!this._templates[stationId]) {
       const { data } = await supabase
-        .from('checklist_templates')
-        .select('*')
-        .eq('station_id', stationId)
-        .order('sort_order');
+        .from('checklist_templates').select('*')
+        .eq('station_id', stationId).order('sort_order');
       this._templates[stationId] = data || [];
     }
     return this._templates[stationId];
@@ -185,7 +184,7 @@ class Store {
     const items = await this.getChecklistTemplate(stationId);
     const nextOrder = items.length ? Math.max(...items.map(i => i.sort_order || 0)) + 1 : 1;
     await supabase.from('checklist_templates').insert({ id, station_id: stationId, text, category, sort_order: nextOrder });
-    delete this._templates[stationId]; // invalidate cache
+    delete this._templates[stationId];
     return id;
   }
 
@@ -215,8 +214,7 @@ class Store {
     const today = new Date().toISOString().split('T')[0];
     const { data } = await supabase
       .from('shifts').select('*')
-      .eq('user_id', userId).eq('date', today).eq('status', 'in_progress')
-      .single();
+      .eq('user_id', userId).eq('date', today).eq('status', 'in_progress').single();
     if (!data) return null;
     return this._hydrateShift(data);
   }
@@ -233,8 +231,7 @@ class Store {
   async createShift(userId, stationId) {
     const today = new Date().toISOString().split('T')[0];
     const { data: existing } = await supabase
-      .from('shifts').select('*')
-      .eq('user_id', userId).eq('date', today).limit(1);
+      .from('shifts').select('*').eq('user_id', userId).eq('date', today).limit(1);
     if (existing && existing.length) return this._hydrateShift(existing[0]);
 
     const template = await this.getChecklistTemplate(stationId);
@@ -254,7 +251,6 @@ class Store {
       completed: false, completed_at: null, sort_order: i,
     }));
     if (items.length) await supabase.from('shift_items').insert(items);
-
     return this._hydrateShift(shift);
   }
 
@@ -268,7 +264,6 @@ class Store {
       completed_at: newCompleted ? new Date().toISOString() : null,
     }).eq('id', itemId);
 
-    // Recalculate completion
     const { data: allItems } = await supabase.from('shift_items').select('completed').eq('shift_id', shiftId);
     const completedCount = (allItems || []).filter(i => i.completed).length;
     const total = (allItems || []).length;
@@ -289,7 +284,6 @@ class Store {
     }
 
     await supabase.from('shifts').update(updates).eq('id', shiftId);
-
     const { data: updatedShift } = await supabase.from('shifts').select('*').eq('id', shiftId).single();
     return this._hydrateShift(updatedShift);
   }
@@ -315,6 +309,12 @@ class Store {
     }).eq('id', shiftId);
   }
 
+  async deleteShift(shiftId) {
+    // Delete shift items first (cascade should handle it, but be safe)
+    await supabase.from('shift_items').delete().eq('shift_id', shiftId);
+    await supabase.from('shifts').delete().eq('id', shiftId);
+  }
+
   // ─── Daily Tasks ───
   async getDailyTasks(date) {
     const d = date || new Date().toISOString().split('T')[0];
@@ -338,8 +338,7 @@ class Store {
   async addDailyTask(text, assignedTo, date) {
     const task = {
       id: `dt_${Date.now()}`, text, assigned_to: assignedTo,
-      date: date || new Date().toISOString().split('T')[0],
-      completed: false,
+      date: date || new Date().toISOString().split('T')[0], completed: false,
     };
     await supabase.from('daily_tasks').insert(task);
     return { ...task, assignedTo };
@@ -373,11 +372,10 @@ class Store {
     await supabase.from('incidents').update({ resolved: true }).eq('id', incidentId);
   }
 
-  // ─── Analytics (uses cached users) ───
+  // ─── Analytics ───
   async getUserAverageScores(userId) {
     const { data: scored } = await supabase
-      .from('shifts')
-      .select('speed_score, cleanliness_score')
+      .from('shifts').select('speed_score, cleanliness_score')
       .eq('user_id', userId).eq('scored', true);
     if (!scored || !scored.length) return { speed: 0, cleanliness: 0, overall: 0, count: 0 };
     const speed = Math.round(scored.reduce((a, s) => a + s.speed_score, 0) / scored.length);
@@ -393,19 +391,13 @@ class Store {
   async getLeaderboard() {
     const users = await this.getUsers();
     const cooks = users.filter(u => u.role === 'cook');
-
-    // Batch: fetch all scored shifts at once instead of per-user
     const { data: allScored } = await supabase
-      .from('shifts')
-      .select('user_id, speed_score, cleanliness_score')
-      .eq('scored', true);
-
+      .from('shifts').select('user_id, speed_score, cleanliness_score').eq('scored', true);
     const scoresByUser = {};
     (allScored || []).forEach(s => {
       if (!scoresByUser[s.user_id]) scoresByUser[s.user_id] = [];
       scoresByUser[s.user_id].push(s);
     });
-
     return cooks.map(cook => {
       const scored = scoresByUser[cook.id] || [];
       let avgSpeed = 0, avgClean = 0, avgOverall = 0;
@@ -414,13 +406,7 @@ class Store {
         avgClean = Math.round(scored.reduce((a, s) => a + s.cleanliness_score, 0) / scored.length);
         avgOverall = Math.round((avgSpeed + avgClean) / 2);
       }
-      return {
-        ...cook,
-        avgScore: avgOverall,
-        avgSpeed,
-        avgCleanliness: avgClean,
-        shiftCount: scored.length,
-      };
+      return { ...cook, avgScore: avgOverall, avgSpeed, avgCleanliness: avgClean, shiftCount: scored.length };
     }).sort((a, b) => b.avgScore - a.avgScore);
   }
 
