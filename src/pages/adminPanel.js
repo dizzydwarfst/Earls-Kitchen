@@ -27,6 +27,12 @@ export async function renderAdminPanel(app, view) {
 
   app.innerHTML = `
     <div class="app-layout">
+      <div class="mobile-topbar" id="mobileTopbar">
+        <button class="hamburger-btn" id="hamburgerBtn">☰</button>
+        <span class="mobile-brand">Earl's Kitchen</span>
+        <span class="mobile-user">${getInitials(session.name)}</span>
+      </div>
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
       ${renderSidebar(session)}
       <div class="main-content" id="adminContent">
         <div style="text-align:center;padding:var(--space-xl);color:var(--white-50);">Loading...</div>
@@ -82,11 +88,28 @@ function renderSidebar(session) {
 }
 
 function attachSidebarEvents(session) {
+  const sidebar = document.getElementById('adminSidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const hamburger = document.getElementById('hamburgerBtn');
+
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('visible');
+  }
+
+  hamburger.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('visible');
+  });
+
+  overlay.addEventListener('click', closeSidebar);
+
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.addEventListener('click', async () => {
       currentAdminView = btn.dataset.view;
       document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      closeSidebar();
       await renderView(currentAdminView, session);
     });
   });
