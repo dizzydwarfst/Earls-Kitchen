@@ -37,6 +37,31 @@ class Store {
   _invalidateUsers() { this._users = null; this._userStations = null; }
   _invalidateStations() { this._stations = null; }
 
+  // ─── Streak Logic ───
+  // Counts consecutive completed shifts (not days) — works for any schedule
+  async _updateStreak(userId) {
+    // Get all shifts for this user, newest first
+    const { data: allShifts } = await supabase
+      .from('shifts').select('date, status, completion_percent')
+      .eq('user_id', userId)
+      .order('date', { ascending: false });
+
+    if (!allShifts || !allShifts.length) return;
+
+    // Count consecutive completed shifts from the most recent backwards
+    let streak = 0;
+    for (const shift of allShifts) {
+      if (shift.completion_percent === 100 || shift.status === 'completed' || shift.status === 'scored') {
+        streak++;
+      } else {
+        break; // streak broken — they had a shift they didn't finish
+      }
+    }
+
+    await supabase.from('users').update({ streak }).eq('id', userId);
+    this._invalidateUsers();
+  }
+
   // ─── Shift hydration ───
   async _hydrateShifts(shifts) {
     if (!shifts || !shifts.length) return [];
@@ -273,8 +298,12 @@ class Store {
     if (pct === 100) {
       updates.status = 'completed';
       updates.end_time = new Date().toISOString();
-      const { data: shift } = await supabase.from('shifts').select('start_time').eq('id', shiftId).single();
-      if (shift) updates.duration_minutes = Math.round((Date.now() - new Date(shift.start_time).getTime()) / 60000);
+      const { data: shift } = await supabase.from('shifts').select('start_time, user_id').eq('id', shiftId).single();
+      if (shift) {
+        updates.duration_minutes = Math.round((Date.now() - new Date(shift.start_time).getTime()) / 60000);
+        // Update streak
+        await this._updateStreak(shift.user_id);
+      }
     } else {
       const { data: shift } = await supabase.from('shifts').select('status').eq('id', shiftId).single();
       if (shift && shift.status === 'completed') {
