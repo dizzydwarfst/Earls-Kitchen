@@ -202,6 +202,12 @@ async function renderStationDetail(stationId, session) {
   const cook = todayShift ? usersMap.get(todayShift.userId) : null;
   const scoredShifts = allShifts.filter(s => s.scored).sort((a, b) => b.date.localeCompare(a.date));
 
+  // Batch fetch photos for visible shifts
+  const shiftPhotoMap = {};
+  for (const s of scoredShifts.slice(0, 20)) {
+    shiftPhotoMap[s.id] = await store.getPhotosForShift(s.id);
+  }
+
   detail.innerHTML = `
     <div class="card animate-in">
       <div class="card-header">
@@ -245,6 +251,19 @@ async function renderStationDetail(stationId, session) {
                 <span>Duration: ${s.durationMinutes ? formatTime(s.durationMinutes) : '--'}</span>
               </div>
               ${s.adminComments ? `<p style="color:var(--white-50);font-size:0.8rem;font-style:italic;margin-bottom:var(--space-md);">"${s.adminComments}"</p>` : ''}
+              ${(() => {
+                const photos = shiftPhotoMap[s.id] || [];
+                const cookP = photos.filter(p => p.photo_type === 'cook');
+                const adminP = photos.filter(p => p.photo_type === 'admin');
+                let html = '';
+                if (cookP.length) {
+                  html += `<div style="margin-bottom:var(--space-md);"><span style="font-size:0.75rem;color:var(--white-50);font-weight:600;">Cook Photos:</span><div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);margin-top:var(--space-xs);">${cookP.map(p => `<a href="${p.url}" target="_blank" style="display:block;width:56px;height:56px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--white-15);"><img src="${p.url}" style="width:100%;height:100%;object-fit:cover;"></a>`).join('')}</div></div>`;
+                }
+                if (adminP.length) {
+                  html += `<div style="margin-bottom:var(--space-md);"><span style="font-size:0.75rem;color:var(--gold-400);font-weight:600;">Manager Photos:</span><div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);margin-top:var(--space-xs);">${adminP.map(p => `<a href="${p.url}" target="_blank" style="display:block;width:56px;height:56px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--white-15);"><img src="${p.url}" style="width:100%;height:100%;object-fit:cover;"></a>`).join('')}</div></div>`;
+                }
+                return html;
+              })()}
               ${s.items && s.items.length ? `
               <details style="margin-bottom:var(--space-md);">
                 <summary style="cursor:pointer;color:var(--gold-400);font-size:0.8rem;font-weight:600;">View Checklist (${s.items.filter(i=>i.completed).length}/${s.items.length})</summary>
@@ -436,6 +455,12 @@ async function renderScoringView(el, session) {
   const needsScoring = todayShifts.filter(s => s.status === 'completed' && !s.scored);
   const scored = todayShifts.filter(s => s.scored);
 
+  // Fetch cook photos for shifts needing scoring
+  const shiftPhotos = {};
+  for (const s of needsScoring) {
+    shiftPhotos[s.id] = await store.getPhotosForShift(s.id, 'cook');
+  }
+
   el.innerHTML = `
     <div class="page-header animate-in"><h1>Score Shifts</h1><p>Review and score completed closing shifts</p></div>
     ${needsScoring.length === 0 ? '<div class="empty-state animate-in stagger-1"><p>No shifts awaiting scoring right now</p></div>' : ''}
@@ -443,6 +468,7 @@ async function renderScoringView(el, session) {
       ${needsScoring.map((shift, i) => {
         const user = usersMap.get(shift.userId);
         const station = stationsMap.get(shift.station);
+        const cookPhotos = shiftPhotos[shift.id] || [];
         return `
         <div class="card animate-in stagger-${(i%6)+1}" style="margin-bottom:var(--space-lg);">
           <div class="card-header">
@@ -452,6 +478,17 @@ async function renderScoringView(el, session) {
           <p style="color:var(--white-50);font-size:0.85rem;margin-bottom:var(--space-md);">
             ${shift.items.filter(i => i.completed).length} / ${shift.items.length} items completed
           </p>
+          ${cookPhotos.length ? `
+          <div style="margin-bottom:var(--space-lg);">
+            <label class="form-label">Cook's Station Photos</label>
+            <div style="display:flex;flex-wrap:wrap;gap:var(--space-sm);">
+              ${cookPhotos.map(p => `
+                <a href="${p.url}" target="_blank" style="display:block;width:80px;height:80px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--white-15);">
+                  <img src="${p.url}" style="width:100%;height:100%;object-fit:cover;" alt="Cook photo">
+                </a>
+              `).join('')}
+            </div>
+          </div>` : ''}
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-xl);">
             <div>
               <label class="form-label">Speed Score</label>
@@ -471,6 +508,15 @@ async function renderScoringView(el, session) {
           <div class="form-group" style="margin-top:var(--space-lg);">
             <label class="form-label">Comments (Optional)</label>
             <textarea class="form-textarea score-comments" data-shift="${shift.id}" placeholder="Any feedback..."></textarea>
+          </div>
+          <div style="margin-bottom:var(--space-md);">
+            <label class="form-label">Attach Photos</label>
+            <div class="admin-photo-previews" id="adminPhotoPreviews_${shift.id}" style="display:flex;flex-wrap:wrap;gap:var(--space-sm);margin-bottom:var(--space-sm);"></div>
+            <label class="btn btn-sm btn-secondary" style="cursor:pointer;">
+              📷 Choose Photos
+              <input type="file" accept="image/*" multiple style="display:none;" class="admin-photo-input" data-shift="${shift.id}">
+            </label>
+            <span style="font-size:0.75rem;color:var(--white-30);margin-left:var(--space-sm);" id="adminPhotoStatus_${shift.id}"></span>
           </div>
           <div style="text-align:right;margin-top:var(--space-md);">
             <button class="btn btn-primary submit-score" data-shift="${shift.id}">Submit Score</button>
@@ -501,6 +547,28 @@ async function renderScoringView(el, session) {
 
   el.querySelectorAll('.speed-slider').forEach(s => { s.addEventListener('input', () => { el.querySelector(`.speed-val-${s.dataset.shift}`).textContent = s.value; }); });
   el.querySelectorAll('.clean-slider').forEach(s => { s.addEventListener('input', () => { el.querySelector(`.clean-val-${s.dataset.shift}`).textContent = s.value; }); });
+
+  // Admin photo preview on select
+  el.querySelectorAll('.admin-photo-input').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const sid = input.dataset.shift;
+      const previews = document.getElementById(`adminPhotoPreviews_${sid}`);
+      const status = document.getElementById(`adminPhotoStatus_${sid}`);
+      previews.innerHTML = '';
+      Array.from(e.target.files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const thumb = document.createElement('div');
+          thumb.style.cssText = 'width:64px;height:64px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--white-15);';
+          thumb.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;">`;
+          previews.appendChild(thumb);
+        };
+        reader.readAsDataURL(file);
+      });
+      status.textContent = `${e.target.files.length} photo${e.target.files.length > 1 ? 's' : ''} selected`;
+    });
+  });
+
   el.querySelectorAll('.submit-score').forEach(btn => {
     btn.addEventListener('click', async () => {
       const sid = btn.dataset.shift;
@@ -508,7 +576,18 @@ async function renderScoringView(el, session) {
       const clean = parseInt(el.querySelector(`.clean-slider[data-shift="${sid}"]`).value);
       const comments = el.querySelector(`.score-comments[data-shift="${sid}"]`).value;
       btn.disabled = true; btn.textContent = 'Saving...';
+
       await store.scoreShift(sid, speed, clean, comments);
+
+      // Upload admin photos
+      const photoInput = el.querySelector(`.admin-photo-input[data-shift="${sid}"]`);
+      if (photoInput && photoInput.files.length) {
+        btn.textContent = 'Uploading photos...';
+        for (const file of Array.from(photoInput.files)) {
+          await store.uploadPhoto(file, { shiftId: sid, uploadedBy: session.id, photoType: 'admin' });
+        }
+      }
+
       showToast('Shift scored successfully!', 'success');
       await renderScoringView(el, session);
     });
@@ -644,26 +723,40 @@ async function renderIncidentsView(el) {
   const open = incidents.filter(i => !i.resolved);
   const resolved = incidents.filter(i => i.resolved);
 
+  // Fetch photos for open incidents
+  const incidentPhotos = {};
+  for (const inc of [...open, ...resolved.slice(0, 10)]) {
+    incidentPhotos[inc.id] = await store.getPhotosForIncident(inc.id);
+  }
+
   el.innerHTML = `
     <div class="page-header animate-in"><h1>Incidents</h1><p>Equipment issues and supply shortages</p></div>
     <div class="card animate-in stagger-1">
       <div class="card-header"><h3>Open Issues (${open.length})</h3></div>
-      ${open.length ? `<div class="incident-list">${open.map(inc => `
+      ${open.length ? `<div class="incident-list">${open.map(inc => {
+        const photos = incidentPhotos[inc.id] || [];
+        return `
         <div class="incident-item">
           <div class="incident-type" style="color:var(--warning);">${inc.type.toUpperCase()}</div>
           <div class="incident-desc">${inc.description}</div>
+          ${photos.length ? `<div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);margin-top:var(--space-sm);">${photos.map(p => `<a href="${p.url}" target="_blank" style="display:block;width:56px;height:56px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--white-15);"><img src="${p.url}" style="width:100%;height:100%;object-fit:cover;"></a>`).join('')}</div>` : ''}
           <div class="incident-time">${usersMap.get(inc.userId)?.name || '--'} | ${formatDate(inc.date)}</div>
           <button class="btn btn-sm btn-secondary resolve-inc" data-id="${inc.id}" style="margin-top:var(--space-sm);">Mark Resolved</button>
-        </div>`).join('')}</div>` : '<p style="color:var(--white-30);padding:var(--space-md);">No open issues</p>'}
+        </div>`;
+      }).join('')}</div>` : '<p style="color:var(--white-30);padding:var(--space-md);">No open issues</p>'}
     </div>
     ${resolved.length ? `<div class="card animate-in stagger-2" style="margin-top:var(--space-lg);">
       <div class="card-header"><h3>Resolved (${resolved.length})</h3></div>
-      <div class="incident-list">${resolved.map(inc => `
+      <div class="incident-list">${resolved.map(inc => {
+        const photos = incidentPhotos[inc.id] || [];
+        return `
         <div class="incident-item" style="opacity:0.6;">
           <div class="incident-type" style="color:var(--success);">RESOLVED: ${inc.type.toUpperCase()}</div>
           <div class="incident-desc">${inc.description}</div>
+          ${photos.length ? `<div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);margin-top:var(--space-sm);">${photos.map(p => `<a href="${p.url}" target="_blank" style="display:block;width:56px;height:56px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--white-15);"><img src="${p.url}" style="width:100%;height:100%;object-fit:cover;"></a>`).join('')}</div>` : ''}
           <div class="incident-time">${usersMap.get(inc.userId)?.name || '--'} | ${formatDate(inc.date)}</div>
-        </div>`).join('')}</div></div>` : ''}`;
+        </div>`;
+      }).join('')}</div></div>` : ''}`;
 
   el.querySelectorAll('.resolve-inc').forEach(btn => {
     btn.addEventListener('click', async () => { await store.resolveIncident(btn.dataset.id); showToast('Incident resolved', 'success'); await renderIncidentsView(el); });

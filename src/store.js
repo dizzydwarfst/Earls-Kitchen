@@ -439,7 +439,55 @@ class Store {
     }).sort((a, b) => b.avgScore - a.avgScore);
   }
 
-  
+  // ─── Photos ───
+  async uploadPhoto(file, { shiftId = null, incidentId = null, uploadedBy, photoType = 'cook' }) {
+    const ext = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const path = `${photoType}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('photos')
+      .upload(path, file, { contentType: file.type });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return null;
+    }
+
+    const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
+    const url = urlData.publicUrl;
+
+    const photo = {
+      id: `photo_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      shift_id: shiftId,
+      incident_id: incidentId,
+      url,
+      uploaded_by: uploadedBy,
+      photo_type: photoType,
+    };
+
+    await supabase.from('photos').insert(photo);
+    return photo;
+  }
+
+  async getPhotosForShift(shiftId, photoType = null) {
+    let query = supabase.from('photos').select('*').eq('shift_id', shiftId);
+    if (photoType) query = query.eq('photo_type', photoType);
+    const { data } = await query.order('created_at');
+    return data || [];
+  }
+
+  async getPhotosForIncident(incidentId) {
+    const { data } = await supabase.from('photos').select('*').eq('incident_id', incidentId).order('created_at');
+    return data || [];
+  }
+
+  async deletePhoto(photoId, storagePath) {
+    if (storagePath) {
+      await supabase.storage.from('photos').remove([storagePath]);
+    }
+    await supabase.from('photos').delete().eq('id', photoId);
+  }
 }
 
 export const store = new Store();
